@@ -14,9 +14,20 @@ type Aggregate = {
   gloatsP: number;
   missedP: number;
   totalP: number;
+  totalPoints: number;
+  latestGwPoints: number | null;
 };
 
-export default async function Page() {
+type View = "fines" | "points";
+
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view: viewParam } = await searchParams;
+  const view: View = viewParam === "points" ? "points" : "fines";
+
   const supabase = await createClient();
 
   const [{ data: players }, { data: gws }, { data: applied }] = await Promise.all([
@@ -32,10 +43,21 @@ export default async function Page() {
   const gwResults = (gws ?? []) as GameweekResult[];
   const fines = (applied ?? []) as FineProposal[];
 
+  const latestGw = gwResults.reduce((max, r) => Math.max(max, r.gw), 0);
+
   const byEntry = new Map<number, Aggregate>(
     players.map((p) => [
       p.entry_id,
-      { player: p, loserP: 0, belowAvgP: 0, gloatsP: 0, missedP: 0, totalP: 0 },
+      {
+        player: p,
+        loserP: 0,
+        belowAvgP: 0,
+        gloatsP: 0,
+        missedP: 0,
+        totalP: 0,
+        totalPoints: 0,
+        latestGwPoints: null,
+      },
     ]),
   );
 
@@ -44,6 +66,8 @@ export default async function Page() {
     if (!a) continue;
     a.loserP += r.loser_fine_p;
     a.belowAvgP += r.below_avg_fine_p;
+    a.totalPoints += r.points;
+    if (r.gw === latestGw) a.latestGwPoints = r.points;
   }
   for (const f of fines) {
     const a = byEntry.get(f.target_entry);
@@ -55,11 +79,13 @@ export default async function Page() {
     a.totalP = a.loserP + a.belowAvgP + a.gloatsP + a.missedP;
   }
 
-  const ranked = [...byEntry.values()].sort((a, b) => b.totalP - a.totalP);
-  const totalPotP = ranked.reduce((sum, a) => sum + a.totalP, 0);
+  const all = [...byEntry.values()];
+  const rankedByFines = [...all].sort((a, b) => b.totalP - a.totalP);
+  const rankedByPoints = [...all].sort((a, b) => b.totalPoints - a.totalPoints);
+
+  const totalPotP = all.reduce((sum, a) => sum + a.totalP, 0);
   const buyInP = buyInPenceFromTotalPot(totalPotP, players.length);
 
-  const latestGw = gwResults.reduce((max, r) => Math.max(max, r.gw), 0);
   const latestRows = gwResults.filter((r) => r.gw === latestGw);
   const latestWinner = latestRows.reduce<GameweekResult | null>(
     (best, r) => (best && best.points >= r.points ? best : r),
@@ -72,14 +98,7 @@ export default async function Page() {
   const latestBelowAvg = latestRows.filter((r) => r.below_avg_fine_p > 0);
   const nameOf = (entryId: number) => byEntry.get(entryId)?.player.display_name ?? `#${entryId}`;
 
-  // Easy Third = 3rd place by cumulative FPL points, not by debt.
-  // (We don't have cumulative FPL points stored independently — derive from gameweek_results.points sum.)
-  const cumulativeByEntry = new Map<number, number>();
-  for (const r of gwResults) {
-    cumulativeByEntry.set(r.entry_id, (cumulativeByEntry.get(r.entry_id) ?? 0) + r.points);
-  }
-  const ladder = [...cumulativeByEntry.entries()].sort((a, b) => b[1] - a[1]);
-  const easyThirdEntry = ladder[2]?.[0];
+  const easyThirdEntry = rankedByPoints[2]?.player.entry_id;
 
   return (
     <div className="space-y-8">
@@ -124,51 +143,114 @@ export default async function Page() {
         </section>
       )}
 
-      {/* LEADERBOARD */}
+      {/* TABS */}
       <section>
-        <h2 className="headline text-3xl mb-3">
-          <span className="shock">SHAME</span> LEADERBOARD
-        </h2>
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-ink text-paper uppercase text-xs">
-              <tr>
-                <th className="px-3 py-2 text-left">#</th>
-                <th className="px-3 py-2 text-left">Manager</th>
-                <th className="px-3 py-2 text-right">Loser fines</th>
-                <th className="px-3 py-2 text-right">Below avg</th>
-                <th className="px-3 py-2 text-right">Gloats</th>
-                <th className="px-3 py-2 text-right">Missed reports</th>
-                <th className="px-3 py-2 text-right">Owed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ranked.map((a, i) => (
-                <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
-                  <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/team/${a.player.entry_id}/${latestGw || 1}`}
-                      className="underline decoration-tabloid decoration-2 underline-offset-2"
-                    >
-                      {a.player.display_name}
-                    </Link>
-                    {a.player.entry_id === easyThirdEntry && (
-                      <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.loserP)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.belowAvgP)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.gloatsP)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.missedP)}</td>
-                  <td className="px-3 py-2 text-right font-bold tabular-nums">
-                    {formatGbp(a.totalP)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex gap-2 mb-3">
+          <Link
+            href="/?view=points"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "points" ? "bg-ink text-paper" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            League table
+          </Link>
+          <Link
+            href="/?view=fines"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "fines" ? "bg-tabloid text-paper" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            Shame leaderboard
+          </Link>
         </div>
+
+        {view === "points" ? (
+          <>
+            <h2 className="headline text-3xl mb-3">
+              <span className="kicker">League</span> TABLE
+            </h2>
+            <div className="card overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-right">GW {latestGw}</th>
+                    <th className="px-3 py-2 text-right">Total points</th>
+                    <th className="px-3 py-2 text-right text-ink/60">Owed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedByPoints.map((a, i) => (
+                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/team/${a.player.entry_id}/${latestGw || 1}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                        {a.player.entry_id === easyThirdEntry && (
+                          <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.latestGwPoints ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-bold">{a.totalPoints}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink/60">{formatGbp(a.totalP)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="headline text-3xl mb-3">
+              <span className="shock">SHAME</span> LEADERBOARD
+            </h2>
+            <div className="card overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-right">Loser fines</th>
+                    <th className="px-3 py-2 text-right">Below avg</th>
+                    <th className="px-3 py-2 text-right">Gloats</th>
+                    <th className="px-3 py-2 text-right">Missed reports</th>
+                    <th className="px-3 py-2 text-right">Owed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedByFines.map((a, i) => (
+                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/team/${a.player.entry_id}/${latestGw || 1}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                        {a.player.entry_id === easyThirdEntry && (
+                          <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.loserP)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.belowAvgP)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.gloatsP)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.missedP)}</td>
+                      <td className="px-3 py-2 text-right font-bold tabular-nums">
+                        {formatGbp(a.totalP)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="card p-5 bg-bargain">
