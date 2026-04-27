@@ -42,7 +42,7 @@ export default async function AdminPage({
   const [{ data: proposals }, { data: players }, { data: gwsResults }, bootstrap] = await Promise.all([
     admin.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
     admin.from("players").select("*").order("display_name"),
-    admin.from("gameweek_results").select("gw").order("gw", { ascending: true }),
+    admin.from("gameweek_results").select("gw, entry_id, points").order("gw", { ascending: true }),
     getBootstrap(),
   ]);
 
@@ -60,16 +60,29 @@ export default async function AdminPage({
   const others = allPlayers.filter((p) => p.entry_id !== session.entry_id);
   const gws = Array.from({ length: 38 }, (_, i) => i + 1);
 
-  // GWs we've actually synced (i.e. finished or in-progress) — only these can have missed reports.
-  const playedGws = Array.from(new Set(((gwsResults ?? []) as Pick<GameweekResult, "gw">[]).map((r) => r.gw))).sort(
-    (a, b) => a - b,
-  );
+  // GWs we've actually synced — only these can have missed reports.
+  const allGwRows = (gwsResults ?? []) as Pick<GameweekResult, "gw" | "entry_id" | "points">[];
+  const playedGws = Array.from(new Set(allGwRows.map((r) => r.gw))).sort((a, b) => a - b);
   const latestGw = playedGws.length ? playedGws[playedGws.length - 1] : 1;
   const selectedGw = (() => {
     const n = Number(gwParam);
     if (Number.isFinite(n) && playedGws.includes(n)) return n;
     return latestGw;
   })();
+
+  // Loser(s) of each GW — the lowest scorer(s). Ties produce multiple losers, all of whom owe a report.
+  const losersByGw = new Map<number, number[]>();
+  for (const gw of playedGws) {
+    const rowsForGw = allGwRows.filter((r) => r.gw === gw);
+    if (rowsForGw.length === 0) continue;
+    const minPts = Math.min(...rowsForGw.map((r) => r.points));
+    losersByGw.set(
+      gw,
+      rowsForGw.filter((r) => r.points === minPts).map((r) => r.entry_id),
+    );
+  }
+  const selectedLosers = losersByGw.get(selectedGw) ?? [];
+  const selectedLoserPlayers = allPlayers.filter((p) => selectedLosers.includes(p.entry_id));
 
   // Lookup: missed_report state per (entry_id, gw). "applied" | "voided" | undefined (none).
   const reportState = new Map<string, "applied" | "voided">();
@@ -121,36 +134,49 @@ export default async function AdminPage({
                 <span>GW {selectedGw} · {formatDeadline(selectedGw)} · Report owner</span>
                 <span>Delivered?</span>
               </div>
-              {allPlayers.map((p) => {
-                const state = reportState.get(`${p.entry_id}:${selectedGw}`);
-                const missed = state === "applied";
-                return (
-                  <div key={p.entry_id} className="flex items-center justify-between px-4 py-3">
-                    <div className="font-bold">
-                      {p.display_name}
-                      {missed && (
-                        <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">
-                          — missed
-                        </span>
-                      )}
+              {selectedLoserPlayers.length === 0 ? (
+                <div className="px-4 py-4 italic text-ink/60 text-sm">
+                  No loser data for GW {selectedGw}.
+                </div>
+              ) : (
+                <>
+                  {selectedLoserPlayers.length > 1 && (
+                    <div className="px-4 py-2 bg-bargain text-xs uppercase tracking-widest font-bold">
+                      Tied at the bottom — both owe a report
                     </div>
-                    <form action={toggleMissedReport}>
-                      <input type="hidden" name="target_entry" value={p.entry_id} />
-                      <input type="hidden" name="gw" value={selectedGw} />
-                      <button
-                        type="submit"
-                        className={`px-4 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest min-w-[140px] ${
-                          missed
-                            ? "bg-tabloid text-paper"
-                            : "bg-bargain hover:bg-bargain/70"
-                        }`}
-                      >
-                        {missed ? "✗ Mark delivered" : "✓ Mark missed"}
-                      </button>
-                    </form>
-                  </div>
-                );
-              })}
+                  )}
+                  {selectedLoserPlayers.map((p) => {
+                    const state = reportState.get(`${p.entry_id}:${selectedGw}`);
+                    const missed = state === "applied";
+                    return (
+                      <div key={p.entry_id} className="flex items-center justify-between px-4 py-3">
+                        <div className="font-bold">
+                          {p.display_name}
+                          {missed && (
+                            <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">
+                              — missed
+                            </span>
+                          )}
+                        </div>
+                        <form action={toggleMissedReport}>
+                          <input type="hidden" name="target_entry" value={p.entry_id} />
+                          <input type="hidden" name="gw" value={selectedGw} />
+                          <button
+                            type="submit"
+                            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest min-w-[140px] ${
+                              missed
+                                ? "bg-tabloid text-paper"
+                                : "bg-bargain hover:bg-bargain/70"
+                            }`}
+                          >
+                            {missed ? "✗ Mark delivered" : "✓ Mark missed"}
+                          </button>
+                        </form>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           </>
         )}
