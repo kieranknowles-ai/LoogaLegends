@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { formatGbp } from "@/lib/scoring";
 import { secondProposal } from "./actions";
 import type { FineProposal, Player } from "@/lib/db-types";
@@ -7,36 +8,28 @@ import type { FineProposal, Player } from "@/lib/db-types";
 export const dynamic = "force-dynamic";
 
 export default async function SecondPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?next=/second");
+  const session = await getSession();
+  if (!session) redirect("/login?next=/second");
 
-  const { data: me } = await supabase
-    .from("players")
-    .select("entry_id, display_name")
-    .eq("user_id", user.id)
-    .single();
-
-  const { data: pending } = await supabase
-    .from("fine_proposals")
-    .select("*")
-    .is("seconded_at", null)
-    .eq("voided", false)
-    .order("proposed_at", { ascending: true });
-
-  const { data: players } = await supabase
-    .from("players")
-    .select("entry_id, display_name");
+  const admin = createAdminClient();
+  const [{ data: pending }, { data: players }] = await Promise.all([
+    admin
+      .from("fine_proposals")
+      .select("*")
+      .is("seconded_at", null)
+      .eq("voided", false)
+      .order("proposed_at", { ascending: true }),
+    admin.from("players").select("entry_id, display_name"),
+  ]);
 
   const nameOf = (id: number) =>
     (players as Pick<Player, "entry_id" | "display_name">[] | null)?.find((p) => p.entry_id === id)?.display_name ??
     `#${id}`;
 
   const proposals = (pending ?? []) as FineProposal[];
-
-  const filtered = me
-    ? proposals.filter((p) => p.target_entry !== me.entry_id && p.proposed_by !== me.entry_id)
-    : proposals;
+  const filtered = proposals.filter(
+    (p) => p.target_entry !== session.entry_id && p.proposed_by !== session.entry_id,
+  );
 
   return (
     <div className="space-y-4">
@@ -44,7 +37,9 @@ export default async function SecondPage() {
         <div className="kicker">Jury duty</div>
         <h1 className="headline text-4xl mt-3">AWAITING SECOND</h1>
         <p className="mt-2 italic text-sm">
-          A proposal becomes a fine the moment a second member rubber-stamps it. You can&apos;t second a fine against yourself or one you proposed.
+          Logged in as <strong>{session.display_name}</strong>. A proposal becomes a fine the
+          moment a second member rubber-stamps it. You can&apos;t second a fine against yourself or
+          one you proposed.
         </p>
       </div>
 

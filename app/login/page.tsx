@@ -1,81 +1,50 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { login } from "./actions";
 
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<LoginShell><div className="p-3">Loading…</div></LoginShell>}>
-      <LoginForm />
-    </Suspense>
-  );
-}
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string; error?: string }>;
+}) {
+  const { next, error } = await searchParams;
+  const session = await getSession();
+  if (session) redirect(next || "/");
 
-function LoginShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="max-w-md mx-auto card p-6">
       <div className="kicker">Members&apos; entrance</div>
       <h1 className="headline text-4xl mt-3">SIGN IN</h1>
       <p className="mt-2 text-sm italic">
-        We&apos;ll send a one-tap magic link. No passwords, no fuss.
+        Type your first name and a password. First time? Whatever password you type
+        becomes your password — write it down. Forgotten? Get Kieran to wipe it in Supabase.
       </p>
-      {children}
-    </div>
-  );
-}
-
-function LoginForm() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [error, setError] = useState("");
-  const params = useSearchParams();
-  const next = params.get("next") || "/";
-
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    setStatus("sending");
-    setError("");
-    const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
-    });
-    if (error) {
-      setError(error.message);
-      setStatus("error");
-    } else {
-      setStatus("sent");
-    }
-  }
-
-  return (
-    <LoginShell>
-      <form onSubmit={send} className="mt-4 space-y-3">
-        <label className="block text-xs uppercase font-bold tracking-widest">Email</label>
+      <form action={login} className="mt-4 space-y-3">
+        <label className="block text-xs uppercase font-bold tracking-widest">First name</label>
         <input
-          type="email"
+          name="first_name"
           required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
           className="w-full border-3 border-ink p-2 bg-paper"
-          placeholder="you@example.com"
+          placeholder="e.g. mark"
         />
-        <button type="submit" disabled={status === "sending"} className="btn-primary w-full">
-          {status === "sending" ? "Sending..." : "Send magic link"}
-        </button>
+        <label className="block text-xs uppercase font-bold tracking-widest">Password</label>
+        <input
+          type="password"
+          name="password"
+          required
+          minLength={4}
+          autoComplete="current-password"
+          className="w-full border-3 border-ink p-2 bg-paper"
+        />
+        <input type="hidden" name="next" value={next ?? "/"} />
+        <button type="submit" className="btn-primary w-full">Sign in</button>
       </form>
-      {status === "sent" && (
-        <div className="mt-4 p-3 bg-bargain border-3 border-ink text-sm">
-          Check your inbox. Click the link to sign in.
-        </div>
+      {error && (
+        <div className="mt-4 p-3 bg-tabloid text-paper border-3 border-ink text-sm">{error}</div>
       )}
-      {status === "error" && (
-        <div className="mt-4 p-3 bg-tabloid text-paper border-3 border-ink text-sm">
-          {error}
-        </div>
-      )}
-    </LoginShell>
+    </div>
   );
 }

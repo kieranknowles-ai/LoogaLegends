@@ -5,6 +5,8 @@ export type Player = {
   entry_id: number;
   user_id: string | null;
   display_name: string;
+  first_name: string | null;
+  password_hash: string | null;
   is_admin: boolean;
   joined_at: string;
 };
@@ -16,6 +18,8 @@ export type GameweekResult = {
   national_average: number;
   loser_fine_p: number;
   below_avg_fine_p: number;
+  event_transfers: number;
+  event_transfers_cost: number;
 };
 
 export type FineKind = "gloat" | "missed_report";

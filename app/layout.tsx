@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Anton, Inter } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import { getSession } from "@/lib/auth";
+import { logout } from "./login/actions";
 
 const anton = Anton({
   variable: "--font-anton",
@@ -19,9 +21,10 @@ export const metadata: Metadata = {
   description: "Weekly fines, gloats and missed reports. Pay up.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const session = await getSession();
   return (
     <html lang="en" className={`${anton.variable} ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-paper text-ink">
@@ -30,11 +33,22 @@ export default function RootLayout({
             <Link href="/" className="font-display text-3xl md:text-4xl tracking-tight uppercase leading-none">
               LOOGA <span className="text-tabloid">LEGENDS</span>
             </Link>
-            <nav className="flex gap-4 text-sm uppercase font-bold">
-              <Link href="/propose" className="hover:text-tabloid">Propose</Link>
-              <Link href="/second" className="hover:text-tabloid">Second</Link>
-              <Link href="/admin" className="hover:text-tabloid">Admin</Link>
-              <Link href="/login" className="hover:text-tabloid">Login</Link>
+            <nav className="flex gap-4 text-sm uppercase font-bold items-baseline">
+              {session ? (
+                <>
+                  <Link href="/propose" className="hover:text-tabloid">Propose</Link>
+                  <Link href="/second" className="hover:text-tabloid">Second</Link>
+                  {session.is_admin && <Link href="/admin" className="hover:text-tabloid">Admin</Link>}
+                  <span className="text-ink/60 normal-case font-normal">
+                    {session.display_name}
+                  </span>
+                  <form action={logout} className="inline">
+                    <button type="submit" className="hover:text-tabloid uppercase">Logout</button>
+                  </form>
+                </>
+              ) : (
+                <Link href="/login" className="hover:text-tabloid">Login</Link>
+              )}
             </nav>
           </div>
           <div className="bg-tabloid text-paper text-xs uppercase font-bold tracking-widest py-1">

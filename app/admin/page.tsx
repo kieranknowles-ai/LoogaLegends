@@ -1,51 +1,75 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { formatGbp } from "@/lib/scoring";
-import { setDisplayName, unvoidProposal, voidProposal } from "./actions";
+import {
+  addMissedReport,
+  clearPassword,
+  setDisplayName,
+  setFirstName,
+  unvoidProposal,
+  voidProposal,
+} from "./actions";
 import type { FineProposal, Player } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login?next=/admin");
+  const session = await getSession();
+  if (!session) redirect("/login?next=/admin");
 
-  const { data: me } = await supabase
-    .from("players")
-    .select("entry_id, is_admin, display_name")
-    .eq("user_id", user.id)
-    .single();
-
-  if (!me?.is_admin) {
+  if (!session.is_admin) {
     return (
       <div className="card p-6">
         <div className="kicker">Backstage</div>
         <h1 className="headline text-4xl mt-3 text-tabloid">Admins only.</h1>
         <p className="mt-2 italic text-sm">
-          Ask the league admin to flip <code>is_admin=true</code> on your row in Supabase.
+          Logged in as {session.display_name}. Ask Kieran to flip <code>is_admin = true</code> on your row in Supabase.
         </p>
       </div>
     );
   }
 
+  const admin = createAdminClient();
   const [{ data: proposals }, { data: players }] = await Promise.all([
-    supabase.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
-    supabase.from("players").select("entry_id, display_name, is_admin, user_id").order("display_name"),
+    admin.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
+    admin.from("players").select("*").order("display_name"),
   ]);
 
-  const nameOf = (id: number) =>
-    (players as Player[] | null)?.find((p) => p.entry_id === id)?.display_name ?? `#${id}`;
-
-  const allProposals = (proposals ?? []) as FineProposal[];
   const allPlayers = (players ?? []) as Player[];
+  const allProposals = (proposals ?? []) as FineProposal[];
+  const nameOf = (id: number) => allPlayers.find((p) => p.entry_id === id)?.display_name ?? `#${id}`;
+  const others = allPlayers.filter((p) => p.entry_id !== session.entry_id);
+  const gws = Array.from({ length: 38 }, (_, i) => i + 1);
 
   return (
     <div className="space-y-8">
       <div>
-        <div className="kicker">Editor&apos;s desk</div>
+        <div className="kicker">Editor&apos;s desk · {session.display_name}</div>
         <h1 className="headline text-4xl mt-3">ADMIN</h1>
       </div>
+
+      {/* Missed report — admin only, auto-applied */}
+      <section className="card p-5 bg-bargain">
+        <div className="kicker">Missed report</div>
+        <h2 className="headline text-2xl mt-2">Add a missed-report fine</h2>
+        <p className="text-sm mt-1 italic">
+          As league admin, you can record missed reports directly. Fine auto-escalates from £10 → £15 → £22.50 → £33.75 …
+          per prior offence. No seconding needed.
+        </p>
+        <form action={addMissedReport} className="mt-3 grid sm:grid-cols-3 gap-2">
+          <select name="target_entry" required className="border-3 border-ink p-2 bg-paper text-sm">
+            <option value="">Target...</option>
+            {others.map((p) => <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>)}
+          </select>
+          <select name="gw" required className="border-3 border-ink p-2 bg-paper text-sm">
+            <option value="">Gameweek...</option>
+            {gws.map((g) => <option key={g} value={g}>GW {g}</option>)}
+          </select>
+          <button type="submit" className="btn-primary text-sm">Apply fine</button>
+          <textarea name="note" rows={2} placeholder="Note (optional)" className="border-3 border-ink p-2 bg-paper text-sm sm:col-span-3" />
+        </form>
+      </section>
 
       <section>
         <h2 className="headline text-2xl mb-3">All proposals</h2>
@@ -102,11 +126,7 @@ export default async function AdminPage() {
       <section>
         <h2 className="headline text-2xl mb-3">Players</h2>
         <p className="text-xs text-ink/60 mb-2 italic">
-          To link a member to their auth account, run in Supabase SQL Editor:
-          <br/>
-          <code className="bg-bargain px-1">update players set user_id = (select id from auth.users where email = &apos;them@…&apos;) where entry_id = NNN;</code>
-          <br/>
-          To grant admin: <code className="bg-bargain px-1">update players set is_admin = true where entry_id = NNN;</code>
+          Set <code>first_name</code> to whatever each player will type at login (lowercase). Click &quot;Reset password&quot; to wipe a hash so they re-set on next login.
         </p>
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
@@ -114,8 +134,9 @@ export default async function AdminPage() {
               <tr>
                 <th className="px-2 py-2 text-left">Entry</th>
                 <th className="px-2 py-2 text-left">Display name</th>
+                <th className="px-2 py-2 text-left">First name (login)</th>
                 <th className="px-2 py-2 text-left">Admin?</th>
-                <th className="px-2 py-2 text-left">Linked?</th>
+                <th className="px-2 py-2 text-left">Password set?</th>
                 <th className="px-2 py-2"></th>
               </tr>
             </thead>
@@ -130,9 +151,23 @@ export default async function AdminPage() {
                       <button className="btn-primary text-xs">Save</button>
                     </form>
                   </td>
+                  <td className="px-2 py-2">
+                    <form action={setFirstName} className="flex gap-1">
+                      <input type="hidden" name="entry_id" value={p.entry_id} />
+                      <input name="first_name" defaultValue={p.first_name ?? ""} placeholder="lowercase" className="border-2 border-ink p-1" />
+                      <button className="btn-primary text-xs">Save</button>
+                    </form>
+                  </td>
                   <td className="px-2 py-2">{p.is_admin ? "★" : ""}</td>
-                  <td className="px-2 py-2">{p.user_id ? "✓" : "—"}</td>
-                  <td></td>
+                  <td className="px-2 py-2">{p.password_hash ? "✓" : "—"}</td>
+                  <td className="px-2 py-2">
+                    {p.password_hash && (
+                      <form action={clearPassword}>
+                        <input type="hidden" name="entry_id" value={p.entry_id} />
+                        <button className="btn-primary text-xs">Reset password</button>
+                      </form>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

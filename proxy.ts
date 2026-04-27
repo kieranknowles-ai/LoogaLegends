@@ -1,49 +1,27 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_PREFIXES = ["/propose", "/second", "/admin"];
+const COOKIE_NAME = "looga_session";
 
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const needsAuth = PROTECTED_PREFIXES.some((p) => path.startsWith(p));
-  if (needsAuth && !user) {
+  if (!needsAuth) return NextResponse.next();
+
+  // Lightweight cookie-presence check. Full HMAC verification happens in lib/auth.ts
+  // when the page renders — proxy just bounces obvious anonymous traffic.
+  const cookie = request.cookies.get(COOKIE_NAME)?.value;
+  if (!cookie) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
     return NextResponse.redirect(url);
   }
-
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    // Run on every path except static assets & internals
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

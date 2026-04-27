@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { buyInPenceFromTotalPot, formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
 import type { GameweekResult, Player, FineProposal } from "@/lib/db-types";
 
@@ -16,6 +16,10 @@ type Aggregate = {
   totalP: number;
   totalPoints: number;
   latestGwPoints: number | null;
+  totalHitsCost: number;        // season total points lost to extra-transfer hits
+  latestGwHitsCost: number;     // hits taken this gameweek
+  weeksWithNegativePoints: number; // count of GWs where net points < 0
+  latestGwWentNegative: boolean;
 };
 
 type View = "fines" | "points";
@@ -28,7 +32,7 @@ export default async function Page({
   const { view: viewParam } = await searchParams;
   const view: View = viewParam === "points" ? "points" : "fines";
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const [{ data: players }, { data: gws }, { data: applied }] = await Promise.all([
     supabase.from("players").select("entry_id, display_name").order("display_name"),
@@ -57,6 +61,10 @@ export default async function Page({
         totalP: 0,
         totalPoints: 0,
         latestGwPoints: null,
+        totalHitsCost: 0,
+        latestGwHitsCost: 0,
+        weeksWithNegativePoints: 0,
+        latestGwWentNegative: false,
       },
     ]),
   );
@@ -67,7 +75,13 @@ export default async function Page({
     a.loserP += r.loser_fine_p;
     a.belowAvgP += r.below_avg_fine_p;
     a.totalPoints += r.points;
-    if (r.gw === latestGw) a.latestGwPoints = r.points;
+    a.totalHitsCost += r.event_transfers_cost ?? 0;
+    if (r.points < 0) a.weeksWithNegativePoints += 1;
+    if (r.gw === latestGw) {
+      a.latestGwPoints = r.points;
+      a.latestGwHitsCost = r.event_transfers_cost ?? 0;
+      a.latestGwWentNegative = r.points < 0;
+    }
   }
   for (const f of fines) {
     const a = byEntry.get(f.target_entry);
@@ -99,6 +113,9 @@ export default async function Page({
   const nameOf = (entryId: number) => byEntry.get(entryId)?.player.display_name ?? `#${entryId}`;
 
   const easyThirdEntry = rankedByPoints[2]?.player.entry_id;
+
+  const negativeThisWeek = all.filter((a) => a.latestGwWentNegative);
+  const hitsThisWeek = all.filter((a) => a.latestGwHitsCost > 0);
 
   return (
     <div className="space-y-8">
@@ -140,6 +157,21 @@ export default async function Page({
               </div>
             </div>
           </div>
+          {(hitsThisWeek.length > 0 || negativeThisWeek.length > 0) && (
+            <div className="mt-4 pt-3 border-t-2 border-dashed border-ink/30 text-sm space-y-1">
+              {negativeThisWeek.map((a) => (
+                <div key={`neg-${a.player.entry_id}`}>
+                  <span className="shock">SHOCKER</span>{" "}
+                  <strong>{a.player.display_name}</strong> went into the red — {a.latestGwPoints} pts.
+                </div>
+              ))}
+              {hitsThisWeek.map((a) => (
+                <div key={`hit-${a.player.entry_id}`} className="text-ink/70">
+                  ⚠️ <strong>{a.player.display_name}</strong> took a {-a.latestGwHitsCost} hit ({a.latestGwPoints} pts net).
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -175,8 +207,13 @@ export default async function Page({
                   <tr>
                     <th className="px-3 py-2 text-left">#</th>
                     <th className="px-3 py-2 text-left">Manager</th>
-                    <th className="px-3 py-2 text-right">GW {latestGw}</th>
+                    <th className="px-3 py-2 text-right" title="Net points this gameweek (already with hits deducted)">
+                      GW {latestGw}
+                    </th>
                     <th className="px-3 py-2 text-right">Total points</th>
+                    <th className="px-3 py-2 text-right" title="Cumulative points lost to extra-transfer hits this season">
+                      Hits
+                    </th>
                     <th className="px-3 py-2 text-right text-ink/60">Owed</th>
                   </tr>
                 </thead>
@@ -194,9 +231,22 @@ export default async function Page({
                         {a.player.entry_id === easyThirdEntry && (
                           <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
                         )}
+                        {a.weeksWithNegativePoints > 0 && (
+                          <span className="ml-2 text-[10px] uppercase tracking-widest text-tabloid">
+                            {a.weeksWithNegativePoints}× red ink
+                          </span>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.latestGwPoints ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {a.latestGwPoints ?? "—"}
+                        {a.latestGwHitsCost > 0 && (
+                          <span className="text-tabloid text-xs ml-1">(-{a.latestGwHitsCost})</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums font-bold">{a.totalPoints}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-tabloid">
+                        {a.totalHitsCost > 0 ? `-${a.totalHitsCost}` : "0"}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-ink/60">{formatGbp(a.totalP)}</td>
                     </tr>
                   ))}

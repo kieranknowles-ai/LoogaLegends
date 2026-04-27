@@ -2,62 +2,31 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { GLOAT_FINE_P, missedReportFineP } from "@/lib/scoring";
+import { GLOAT_FINE_P } from "@/lib/scoring";
 
 export async function proposeFine(formData: FormData) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session) redirect("/login?next=/propose");
 
   const kind = String(formData.get("kind") ?? "");
   const targetEntry = Number(formData.get("target_entry"));
-  const gwRaw = formData.get("gw");
   const note = String(formData.get("note") ?? "").trim() || null;
 
-  if (kind !== "gloat" && kind !== "missed_report") {
-    throw new Error("Invalid kind");
-  }
-  if (!Number.isFinite(targetEntry)) {
-    throw new Error("Invalid target");
-  }
-  const gw = gwRaw === null || gwRaw === "" ? null : Number(gwRaw);
-  if (kind === "missed_report" && (gw === null || !Number.isFinite(gw))) {
-    throw new Error("Missed report requires a gameweek");
-  }
+  // Anyone can propose a gloat. Missed reports — Mark only (the league admin).
+  if (kind !== "gloat") throw new Error("Only gloats can be proposed here. Missed reports go through admin.");
+  if (!Number.isFinite(targetEntry)) throw new Error("Pick a target.");
+  if (targetEntry === session.entry_id) throw new Error("Can't fine yourself.");
 
-  // Find the proposer's entry
-  const { data: me } = await supabase
-    .from("players")
-    .select("entry_id")
-    .eq("user_id", user.id)
-    .single();
-  if (!me) throw new Error("You are not linked to a player. Ask the admin.");
-  if (me.entry_id === targetEntry) throw new Error("Can't fine yourself.");
-
-  let fine_p = GLOAT_FINE_P;
-  if (kind === "missed_report") {
-    // Count target's prior applied missed reports (admin client to bypass RLS for the count)
-    const admin = createAdminClient();
-    const { count, error } = await admin
-      .from("fine_proposals")
-      .select("id", { count: "exact", head: true })
-      .eq("kind", "missed_report")
-      .eq("target_entry", targetEntry)
-      .eq("voided", false)
-      .not("seconded_at", "is", null);
-    if (error) throw error;
-    fine_p = missedReportFineP(count ?? 0);
-  }
-
-  const { error } = await supabase.from("fine_proposals").insert({
-    kind,
+  const admin = createAdminClient();
+  const { error } = await admin.from("fine_proposals").insert({
+    kind: "gloat",
     target_entry: targetEntry,
-    gw,
-    fine_p,
+    gw: null,
+    fine_p: GLOAT_FINE_P,
     note,
-    proposed_by: me.entry_id,
+    proposed_by: session.entry_id,
   });
   if (error) throw new Error(error.message);
 

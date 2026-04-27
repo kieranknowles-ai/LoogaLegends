@@ -61,6 +61,7 @@ export type FplHistoryEvent = {
   points: number; // already net of transfer hits
   total_points: number;
   rank: number;
+  event_transfers: number;
   event_transfers_cost: number;
   points_on_bench: number;
 };

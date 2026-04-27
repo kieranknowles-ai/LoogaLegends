@@ -2,27 +2,33 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function secondProposal(formData: FormData) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session) redirect("/login?next=/second");
 
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) throw new Error("Invalid id");
 
-  const { data: me } = await supabase
-    .from("players")
-    .select("entry_id")
-    .eq("user_id", user.id)
-    .single();
-  if (!me) throw new Error("You are not linked to a player.");
-
-  // RLS + check constraints on fine_proposals enforce all the rules.
-  const { error } = await supabase
+  const admin = createAdminClient();
+  // Re-check the proposal here so the rules can't be bypassed by a forged form post.
+  const { data: prop, error: fetchErr } = await admin
     .from("fine_proposals")
-    .update({ seconded_by: me.entry_id, seconded_at: new Date().toISOString() })
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (!prop) throw new Error("Proposal not found.");
+  if (prop.voided) throw new Error("Already voided.");
+  if (prop.seconded_at) throw new Error("Already seconded.");
+  if (prop.target_entry === session.entry_id) throw new Error("Can't second a fine against yourself.");
+  if (prop.proposed_by === session.entry_id) throw new Error("Can't second your own proposal.");
+
+  const { error } = await admin
+    .from("fine_proposals")
+    .update({ seconded_by: session.entry_id, seconded_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw new Error(error.message);
 

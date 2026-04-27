@@ -76,24 +76,31 @@ export async function GET(request: NextRequest) {
   for (const gw of todo) {
     const event = bootstrap.events.find((e) => e.id === gw);
     if (!event) continue;
-    const scores = histories
+    const events = histories
       .map(({ entry, history }) => {
         const evt = history.current.find((h) => h.event === gw);
-        return evt ? { entryId: entry, points: evt.points } : null;
+        return evt ? { entryId: entry, evt } : null;
       })
-      .filter((x): x is { entryId: number; points: number } => x !== null);
+      .filter((x): x is { entryId: number; evt: typeof histories[number]["history"]["current"][number] } => x !== null);
 
-    if (scores.length === 0) continue;
+    if (events.length === 0) continue;
 
+    const scores = events.map(({ entryId, evt }) => ({ entryId, points: evt.points }));
     const breakdown = computeGameweekFines(scores, event.average_entry_score);
-    const rows = breakdown.map((b) => ({
-      gw,
-      entry_id: b.entryId,
-      points: b.points,
-      national_average: event.average_entry_score,
-      loser_fine_p: b.loserFineP,
-      below_avg_fine_p: b.belowAvgFineP,
-    }));
+    const transfersByEntry = new Map(events.map(({ entryId, evt }) => [entryId, evt]));
+    const rows = breakdown.map((b) => {
+      const evt = transfersByEntry.get(b.entryId)!;
+      return {
+        gw,
+        entry_id: b.entryId,
+        points: b.points,
+        national_average: event.average_entry_score,
+        loser_fine_p: b.loserFineP,
+        below_avg_fine_p: b.belowAvgFineP,
+        event_transfers: evt.event_transfers ?? 0,
+        event_transfers_cost: evt.event_transfers_cost ?? 0,
+      };
+    });
 
     const { error } = await admin
       .from("gameweek_results")

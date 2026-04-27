@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getBootstrap, getEntryPicks } from "@/lib/fpl";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export default async function TeamPage({
   const entryId = Number(entryIdStr);
   const gw = Number(gwStr);
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data: player } = await supabase
     .from("players")
     .select("entry_id, display_name")
