@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buyInPenceFromTotalPot, formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
-import type { GameweekResult, Player, FineProposal } from "@/lib/db-types";
+import { getSession } from "@/lib/auth";
+import { secondProposal } from "./second/actions";
+import { GLOAT_REASON_LABELS, type GameweekResult, type Player, type FineProposal } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +46,9 @@ export default async function Page({
     viewParam === "points" ? "points" : viewParam === "gloating" ? "gloating" : "fines";
 
   const supabase = createAdminClient();
+  const session = await getSession();
 
-  const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }] = await Promise.all([
+  const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }] = await Promise.all([
     supabase.from("players").select("entry_id, display_name").order("display_name"),
     supabase.from("gameweek_results").select("*"),
     supabase.from("applied_fines").select("*"),
@@ -54,6 +57,13 @@ export default async function Page({
       .select("*")
       .eq("kind", "gloat")
       .eq("voided", false),
+    supabase
+      .from("fine_proposals")
+      .select("*")
+      .eq("kind", "gloat")
+      .eq("voided", false)
+      .is("seconded_at", null)
+      .order("proposed_at", { ascending: false }),
   ]);
 
   if (!players || players.length === 0) {
@@ -241,6 +251,79 @@ export default async function Page({
           )}
         </section>
       )}
+
+      {/* ACTIVE PROPOSALS */}
+      {(() => {
+        const pendingProposals = (pending ?? []) as FineProposal[];
+        return (
+          <section>
+            <div className="kicker">Awaiting verdict</div>
+            <h2 className="headline text-3xl mt-2 mb-3">
+              ACTIVE <span className="text-tabloid">GLOATS</span>
+            </h2>
+            {pendingProposals.length === 0 && (
+              <div className="card p-5 text-center italic text-ink/60">
+                No active gloats. The league is suspiciously well-behaved.{" "}
+                <Link href="/propose" className="underline font-bold not-italic text-ink">
+                  Spotted one?
+                </Link>
+              </div>
+            )}
+            <div className="grid gap-3">
+              {pendingProposals.map((p) => {
+                const target = byEntry.get(p.target_entry);
+                const proposer = byEntry.get(p.proposed_by);
+                const ageMs = Date.now() - new Date(p.proposed_at).getTime();
+                const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+                const stale = ageMs >= WEEK_MS;
+                const canVote =
+                  session !== null &&
+                  session.entry_id !== p.target_entry &&
+                  session.entry_id !== p.proposed_by &&
+                  !stale;
+                let reason: string | null = null;
+                if (!session) reason = "Login to second";
+                else if (session.entry_id === p.target_entry) reason = "You're the target";
+                else if (session.entry_id === p.proposed_by) reason = "You proposed it";
+                else if (stale) reason = "Stale (>7 days) — got away with it";
+                return (
+                  <div key={p.id} className="card p-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <div className="text-xs uppercase tracking-widest text-ink/60">
+                        {p.gloat_reason ? GLOAT_REASON_LABELS[p.gloat_reason] : "Gloat"}
+                        {p.gloat_date && ` · ${p.gloat_date}`}
+                        {" · proposed "}
+                        {ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`}
+                        {" by "}{proposer?.player.display_name ?? `#${p.proposed_by}`}
+                      </div>
+                      <div className="headline text-2xl mt-1">
+                        {target?.player.display_name ?? `#${p.target_entry}`}
+                        <span className="text-tabloid"> — {formatGbp(p.fine_p)}</span>
+                      </div>
+                      {p.note && <div className="mt-1 text-sm italic">&ldquo;{p.note}&rdquo;</div>}
+                      {stale && (
+                        <div className="mt-1 text-xs uppercase tracking-widest text-ink/50">
+                          ⚠ proposal expired without a seconder
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      {canVote ? (
+                        <form action={secondProposal}>
+                          <input type="hidden" name="id" value={p.id} />
+                          <button type="submit" className="btn-primary">Second it</button>
+                        </form>
+                      ) : (
+                        <span className="text-xs uppercase tracking-widest text-ink/50">{reason}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* TABS */}
       <section>
@@ -448,10 +531,10 @@ export default async function Page({
       <section className="card p-5 bg-bargain">
         <div className="kicker">Want to dish it out?</div>
         <p className="mt-2 text-sm">
-          Spotted a gloat in the chat? Missed report? Hit{" "}
-          <Link href="/propose" className="underline font-bold">propose</Link> — but remember,
-          you can&apos;t fine yourself, and another member has to <Link href="/second" className="underline font-bold">second</Link> it
-          before the fine sticks. Target can&apos;t second their own.
+          Spotted a gloat in the chat? Hit{" "}
+          <Link href="/propose" className="underline font-bold">propose</Link> — it&apos;ll then appear in &ldquo;Active Gloats&rdquo;
+          above for any other member to second within 7 days. Target can&apos;t second their own. After 7 days
+          unseconded, the gloat goes stale and the target gets away with it.
         </p>
       </section>
     </div>

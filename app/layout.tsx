@@ -37,7 +37,6 @@ export default async function RootLayout({
               {session ? (
                 <>
                   <Link href="/propose" className="hover:text-tabloid">Propose</Link>
-                  <Link href="/second" className="hover:text-tabloid">Second</Link>
                   {session.is_admin && <Link href="/admin" className="hover:text-tabloid">Admin</Link>}
                   <span className="text-ink/60 normal-case font-normal">
                     {session.display_name}

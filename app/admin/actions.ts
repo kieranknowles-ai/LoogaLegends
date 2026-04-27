@@ -17,7 +17,7 @@ async function requireAdmin() {
  * Toggle missed-report state for a (player, gw) pair.
  *
  * - If no row exists → create an applied missed_report (fine = base × 1.5^prior).
- * - If a non-voided row exists → void it (Mark changed mind, report was actually submitted).
+ * - If a non-voided row exists → void it (admin changed mind, report was actually submitted).
  * - If a voided row exists → unvoid it (re-mark as missed, keep original fine_p).
  */
 export async function toggleMissedReport(formData: FormData) {
@@ -27,7 +27,6 @@ export async function toggleMissedReport(formData: FormData) {
 
   if (!Number.isFinite(targetEntry)) throw new Error("Invalid target.");
   if (!Number.isFinite(gw) || gw < 1 || gw > 38) throw new Error("Invalid gameweek.");
-  if (targetEntry === session.entry_id) throw new Error("Can't fine yourself.");
 
   // Look for an existing row for this (target, gw, missed_report).
   const { data: existing } = await admin
@@ -84,7 +83,6 @@ export async function addMissedReport(formData: FormData) {
 
   if (!Number.isFinite(targetEntry)) throw new Error("Pick a target.");
   if (!Number.isFinite(gw) || gw < 1 || gw > 38) throw new Error("Pick a gameweek.");
-  if (targetEntry === session.entry_id) throw new Error("Can't fine yourself.");
 
   // Count this player's prior applied missed reports → next-fine progression.
   const { count } = await admin

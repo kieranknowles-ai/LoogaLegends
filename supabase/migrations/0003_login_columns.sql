@@ -16,6 +16,6 @@ create unique index if not exists players_first_name_idx
   on players (first_name)
   where first_name is not null;
 
--- Designate the missed-report admin. Mark Beaven gets the keys.
+-- Designate the league admin (handles missed reports + voids).
 -- (Run this manually after first login if entry_id isn't known yet.)
--- update players set is_admin = true where lower(first_name) = 'mark';
+-- update players set is_admin = true where lower(first_name) = 'kieran';

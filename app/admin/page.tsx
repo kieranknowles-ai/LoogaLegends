@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatGbp } from "@/lib/scoring";
+import { getBootstrap } from "@/lib/fpl";
 import {
   addMissedReport,
   clearPassword,
@@ -15,9 +17,14 @@ import type { FineProposal, Player, GameweekResult } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ gw?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login?next=/admin");
+  const { gw: gwParam } = await searchParams;
 
   if (!session.is_admin) {
     return (
@@ -32,11 +39,20 @@ export default async function AdminPage() {
   }
 
   const admin = createAdminClient();
-  const [{ data: proposals }, { data: players }, { data: gwsResults }] = await Promise.all([
+  const [{ data: proposals }, { data: players }, { data: gwsResults }, bootstrap] = await Promise.all([
     admin.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
     admin.from("players").select("*").order("display_name"),
     admin.from("gameweek_results").select("gw").order("gw", { ascending: true }),
+    getBootstrap(),
   ]);
+
+  const deadlineByGw = new Map(bootstrap.events.map((e) => [e.id, e.deadline_time] as const));
+  const formatDeadline = (gw: number) => {
+    const iso = deadlineByGw.get(gw);
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  };
 
   const allPlayers = (players ?? []) as Player[];
   const allProposals = (proposals ?? []) as FineProposal[];
@@ -48,6 +64,12 @@ export default async function AdminPage() {
   const playedGws = Array.from(new Set(((gwsResults ?? []) as Pick<GameweekResult, "gw">[]).map((r) => r.gw))).sort(
     (a, b) => a - b,
   );
+  const latestGw = playedGws.length ? playedGws[playedGws.length - 1] : 1;
+  const selectedGw = (() => {
+    const n = Number(gwParam);
+    if (Number.isFinite(n) && playedGws.includes(n)) return n;
+    return latestGw;
+  })();
 
   // Lookup: missed_report state per (entry_id, gw). "applied" | "voided" | undefined (none).
   const reportState = new Map<string, "applied" | "voided">();
@@ -67,60 +89,70 @@ export default async function AdminPage() {
         <h1 className="headline text-4xl mt-3">ADMIN</h1>
       </div>
 
-      {/* Missed report grid — Mark toggles cells. Green ✓ = submitted, red ✗ = missed. */}
+      {/* Missed reports — clean list, one row per manager, GW selector at top. */}
       <section>
         <div className="kicker">Reports register</div>
-        <h2 className="headline text-2xl mt-2">Missed reports — yes/no by gameweek</h2>
+        <h2 className="headline text-2xl mt-2">Missed reports</h2>
         <p className="text-sm mt-1 italic">
-          Click a cell to flip it. Default is &ldquo;submitted&rdquo; (green ✓). Mark as missed (red ✗) and the fine auto-applies —
+          Default is delivered. Click a row to flip it. When set to missed, the fine auto-applies —
           £10 first miss, then ×1.5 each subsequent (£15, £22.50, £33.75…) per player.
         </p>
+
         {playedGws.length === 0 ? (
           <div className="card p-4 mt-3 italic text-ink/60">No completed gameweeks yet.</div>
         ) : (
-          <div className="card overflow-x-auto mt-3">
-            <table className="text-xs">
-              <thead className="bg-ink text-paper uppercase">
-                <tr>
-                  <th className="px-2 py-2 text-left sticky left-0 bg-ink z-10">Manager</th>
-                  {playedGws.map((g) => (
-                    <th key={g} className="px-1 py-2 text-center min-w-[40px]">{g}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {allPlayers.map((p) => (
-                  <tr key={p.entry_id} className="border-t border-ink/20">
-                    <td className="px-2 py-1 sticky left-0 bg-paper font-bold whitespace-nowrap">
+          <>
+            <div className="flex flex-wrap gap-1 mt-3">
+              {playedGws.map((g) => (
+                <Link
+                  key={g}
+                  href={`/admin?gw=${g}`}
+                  className={`px-3 py-1 border-2 border-ink uppercase font-bold text-xs tracking-widest ${
+                    selectedGw === g ? "bg-tabloid text-paper" : "bg-paper hover:bg-bargain"
+                  }`}
+                >
+                  GW {g}
+                </Link>
+              ))}
+            </div>
+
+            <div className="card mt-3 divide-y-2 divide-ink/10">
+              <div className="px-4 py-2 bg-ink text-paper uppercase text-xs tracking-widest font-bold flex justify-between">
+                <span>GW {selectedGw} · {formatDeadline(selectedGw)} · Report owner</span>
+                <span>Delivered?</span>
+              </div>
+              {allPlayers.map((p) => {
+                const state = reportState.get(`${p.entry_id}:${selectedGw}`);
+                const missed = state === "applied";
+                return (
+                  <div key={p.entry_id} className="flex items-center justify-between px-4 py-3">
+                    <div className="font-bold">
                       {p.display_name}
-                    </td>
-                    {playedGws.map((g) => {
-                      const key = `${p.entry_id}:${g}`;
-                      const state = reportState.get(key);
-                      const missed = state === "applied";
-                      return (
-                        <td key={g} className="px-1 py-1 text-center">
-                          <form action={toggleMissedReport} className="inline">
-                            <input type="hidden" name="target_entry" value={p.entry_id} />
-                            <input type="hidden" name="gw" value={g} />
-                            <button
-                              type="submit"
-                              title={missed ? "Click to mark as submitted" : "Click to mark as missed"}
-                              className={`w-7 h-7 border-2 border-ink font-bold ${
-                                missed ? "bg-tabloid text-paper" : "bg-bargain/50 text-ink/40 hover:bg-bargain"
-                              }`}
-                            >
-                              {missed ? "✗" : "✓"}
-                            </button>
-                          </form>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {missed && (
+                        <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">
+                          — missed
+                        </span>
+                      )}
+                    </div>
+                    <form action={toggleMissedReport}>
+                      <input type="hidden" name="target_entry" value={p.entry_id} />
+                      <input type="hidden" name="gw" value={selectedGw} />
+                      <button
+                        type="submit"
+                        className={`px-4 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest min-w-[140px] ${
+                          missed
+                            ? "bg-tabloid text-paper"
+                            : "bg-bargain hover:bg-bargain/70"
+                        }`}
+                      >
+                        {missed ? "✗ Mark delivered" : "✓ Mark missed"}
+                      </button>
+                    </form>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </section>
 
