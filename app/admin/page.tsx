@@ -5,7 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatGbp } from "@/lib/scoring";
 import { getBootstrap } from "@/lib/fpl";
 import {
-  addMissedReport,
   clearPassword,
   setDisplayName,
   setFirstName,
@@ -57,8 +56,6 @@ export default async function AdminPage({
   const allPlayers = (players ?? []) as Player[];
   const allProposals = (proposals ?? []) as FineProposal[];
   const nameOf = (id: number) => allPlayers.find((p) => p.entry_id === id)?.display_name ?? `#${id}`;
-  const others = allPlayers.filter((p) => p.entry_id !== session.entry_id);
-  const gws = Array.from({ length: 38 }, (_, i) => i + 1);
 
   // GWs we've actually synced — only these can have missed reports.
   const allGwRows = (gwsResults ?? []) as Pick<GameweekResult, "gw" | "entry_id" | "points">[];
@@ -182,27 +179,6 @@ export default async function AdminPage({
         )}
       </section>
 
-      {/* Backup form-based missed-report entry (with optional note). */}
-      <section className="card p-5 bg-bargain">
-        <div className="kicker">Missed report (with note)</div>
-        <h2 className="headline text-2xl mt-2">Add with a note</h2>
-        <p className="text-sm mt-1 italic">
-          Use this when you want to attach a note (e.g. &ldquo;reported late, partial credit&rdquo;).
-          Fine auto-escalates per prior offence. No seconding.
-        </p>
-        <form action={addMissedReport} className="mt-3 grid sm:grid-cols-3 gap-2">
-          <select name="target_entry" required className="border-3 border-ink p-2 bg-paper text-sm">
-            <option value="">Target...</option>
-            {others.map((p) => <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>)}
-          </select>
-          <select name="gw" required className="border-3 border-ink p-2 bg-paper text-sm">
-            <option value="">Gameweek...</option>
-            {gws.map((g) => <option key={g} value={g}>GW {g}</option>)}
-          </select>
-          <button type="submit" className="btn-primary text-sm">Apply fine</button>
-          <textarea name="note" rows={2} placeholder="Note (optional)" className="border-3 border-ink p-2 bg-paper text-sm sm:col-span-3" />
-        </form>
-      </section>
 
       <section>
         <h2 className="headline text-2xl mb-3">All proposals</h2>

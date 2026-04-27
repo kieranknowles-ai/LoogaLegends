@@ -12,6 +12,7 @@ type Props = {
   xLabels: string[];     // length must match series[i].data length
   yLabel?: string;
   yFormatter?: (v: number) => string;
+  yStep?: number;        // when set, snap y-ticks to multiples of this value
   width?: number;
   height?: number;
 };
@@ -21,6 +22,7 @@ export function SeasonChart({
   xLabels,
   yLabel,
   yFormatter = (v) => String(Math.round(v)),
+  yStep,
   width = 800,
   height = 360,
 }: Props) {
@@ -32,20 +34,34 @@ export function SeasonChart({
   const n = xLabels.length;
 
   const flat = series.flatMap((s) => s.data.filter((v): v is number => v != null));
-  const max = flat.length ? Math.max(...flat, 0) : 10;
-  const min = flat.length ? Math.min(...flat, 0) : 0;
-  const span = max - min || 1;
-  // Add 5% headroom so the top line isn't kissing the upper border
-  const padded = span * 0.05;
-  const yMax = max + padded;
-  const yMin = min < 0 ? min - padded : min;
+  const rawMax = flat.length ? Math.max(...flat, 0) : 10;
+  const rawMin = flat.length ? Math.min(...flat, 0) : 0;
+
+  let yMin: number;
+  let yMax: number;
+  let yTicks: number[];
+
+  if (yStep && yStep > 0) {
+    // Snap to clean increments. Auto-grow step if too many ticks would result.
+    yMin = Math.floor(rawMin / yStep) * yStep;
+    yMax = Math.max(Math.ceil(rawMax / yStep) * yStep, yMin + yStep);
+    let step = yStep;
+    while ((yMax - yMin) / step > 12) step *= 2;
+    yMax = Math.max(Math.ceil(rawMax / step) * step, yMin + step);
+    yMin = Math.floor(rawMin / step) * step;
+    yTicks = [];
+    for (let v = yMin; v <= yMax + 0.5; v += step) yTicks.push(v);
+  } else {
+    const span = rawMax - rawMin || 1;
+    const padded = span * 0.05;
+    yMax = rawMax + padded;
+    yMin = rawMin < 0 ? rawMin - padded : rawMin;
+    yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => yMin + t * (yMax - yMin));
+  }
   const ySpan = yMax - yMin || 1;
 
   const x = (i: number) => PAD.left + (cw * i) / Math.max(n - 1, 1);
   const y = (v: number) => PAD.top + ch - (ch * (v - yMin)) / ySpan;
-
-  // 5 horizontal grid lines
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => yMin + t * ySpan);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img">

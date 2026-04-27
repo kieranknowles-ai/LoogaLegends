@@ -182,8 +182,8 @@ export default async function TeamSeasonPage({
             <SeasonChart
               series={ffpSeries}
               xLabels={xLabels}
-              yLabel="Owed (pence)"
               yFormatter={(v) => formatGbp(v)}
+              yStep={500}
             />
           </>
         )}
