@@ -24,6 +24,19 @@ export type GameweekResult = {
 
 export type FineKind = "gloat" | "missed_report";
 
+export type GloatReason =
+  | "general_arrogance"
+  | "league_position"
+  | "weekly_performance"
+  | "non_football";
+
+export const GLOAT_REASON_LABELS: Record<GloatReason, string> = {
+  general_arrogance: "General arrogance",
+  league_position: "League position",
+  weekly_performance: "Weekly performance",
+  non_football: "Non-football related",
+};
+
 export type FineProposal = {
   id: number;
   kind: FineKind;
@@ -37,4 +50,6 @@ export type FineProposal = {
   seconded_at: string | null;
   voided: boolean;
   voided_reason: string | null;
+  gloat_date: string | null;
+  gloat_reason: GloatReason | null;
 };

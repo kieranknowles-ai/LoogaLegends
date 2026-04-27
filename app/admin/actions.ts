@@ -13,7 +13,69 @@ async function requireAdmin() {
   return { session, admin: createAdminClient() };
 }
 
-/** Mark adds a missed report. Auto-applied — no seconding needed since it's the admin's call. */
+/**
+ * Toggle missed-report state for a (player, gw) pair.
+ *
+ * - If no row exists → create an applied missed_report (fine = base × 1.5^prior).
+ * - If a non-voided row exists → void it (Mark changed mind, report was actually submitted).
+ * - If a voided row exists → unvoid it (re-mark as missed, keep original fine_p).
+ */
+export async function toggleMissedReport(formData: FormData) {
+  const { session, admin } = await requireAdmin();
+  const targetEntry = Number(formData.get("target_entry"));
+  const gw = Number(formData.get("gw"));
+
+  if (!Number.isFinite(targetEntry)) throw new Error("Invalid target.");
+  if (!Number.isFinite(gw) || gw < 1 || gw > 38) throw new Error("Invalid gameweek.");
+  if (targetEntry === session.entry_id) throw new Error("Can't fine yourself.");
+
+  // Look for an existing row for this (target, gw, missed_report).
+  const { data: existing } = await admin
+    .from("fine_proposals")
+    .select("id, voided")
+    .eq("kind", "missed_report")
+    .eq("target_entry", targetEntry)
+    .eq("gw", gw)
+    .order("proposed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    // Toggle voided flag.
+    const { error } = await admin
+      .from("fine_proposals")
+      .update({ voided: !existing.voided, voided_reason: existing.voided ? null : "toggled by admin" })
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+  } else {
+    // Fresh: count prior applied missed reports for the progression.
+    const { count } = await admin
+      .from("fine_proposals")
+      .select("id", { count: "exact", head: true })
+      .eq("kind", "missed_report")
+      .eq("target_entry", targetEntry)
+      .eq("voided", false)
+      .not("seconded_at", "is", null);
+    const fine_p = missedReportFineP(count ?? 0);
+    const now = new Date().toISOString();
+    const { error } = await admin.from("fine_proposals").insert({
+      kind: "missed_report",
+      target_entry: targetEntry,
+      gw,
+      fine_p,
+      note: null,
+      proposed_by: session.entry_id,
+      seconded_by: session.entry_id,
+      seconded_at: now,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+}
+
+/** Form-based add (kept for non-grid use, e.g. retroactive entry with a note). */
 export async function addMissedReport(formData: FormData) {
   const { session, admin } = await requireAdmin();
   const targetEntry = Number(formData.get("target_entry"));

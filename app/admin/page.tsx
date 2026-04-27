@@ -7,10 +7,11 @@ import {
   clearPassword,
   setDisplayName,
   setFirstName,
+  toggleMissedReport,
   unvoidProposal,
   voidProposal,
 } from "./actions";
-import type { FineProposal, Player } from "@/lib/db-types";
+import type { FineProposal, Player, GameweekResult } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,10 @@ export default async function AdminPage() {
   }
 
   const admin = createAdminClient();
-  const [{ data: proposals }, { data: players }] = await Promise.all([
+  const [{ data: proposals }, { data: players }, { data: gwsResults }] = await Promise.all([
     admin.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
     admin.from("players").select("*").order("display_name"),
+    admin.from("gameweek_results").select("gw").order("gw", { ascending: true }),
   ]);
 
   const allPlayers = (players ?? []) as Player[];
@@ -42,6 +44,22 @@ export default async function AdminPage() {
   const others = allPlayers.filter((p) => p.entry_id !== session.entry_id);
   const gws = Array.from({ length: 38 }, (_, i) => i + 1);
 
+  // GWs we've actually synced (i.e. finished or in-progress) — only these can have missed reports.
+  const playedGws = Array.from(new Set(((gwsResults ?? []) as Pick<GameweekResult, "gw">[]).map((r) => r.gw))).sort(
+    (a, b) => a - b,
+  );
+
+  // Lookup: missed_report state per (entry_id, gw). "applied" | "voided" | undefined (none).
+  const reportState = new Map<string, "applied" | "voided">();
+  for (const p of allProposals) {
+    if (p.kind !== "missed_report" || p.gw == null) continue;
+    const key = `${p.target_entry}:${p.gw}`;
+    // Latest wins (proposals are sorted desc by proposed_at).
+    if (!reportState.has(key)) {
+      reportState.set(key, p.voided ? "voided" : "applied");
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -49,13 +67,70 @@ export default async function AdminPage() {
         <h1 className="headline text-4xl mt-3">ADMIN</h1>
       </div>
 
-      {/* Missed report — admin only, auto-applied */}
-      <section className="card p-5 bg-bargain">
-        <div className="kicker">Missed report</div>
-        <h2 className="headline text-2xl mt-2">Add a missed-report fine</h2>
+      {/* Missed report grid — Mark toggles cells. Green ✓ = submitted, red ✗ = missed. */}
+      <section>
+        <div className="kicker">Reports register</div>
+        <h2 className="headline text-2xl mt-2">Missed reports — yes/no by gameweek</h2>
         <p className="text-sm mt-1 italic">
-          As league admin, you can record missed reports directly. Fine auto-escalates from £10 → £15 → £22.50 → £33.75 …
-          per prior offence. No seconding needed.
+          Click a cell to flip it. Default is &ldquo;submitted&rdquo; (green ✓). Mark as missed (red ✗) and the fine auto-applies —
+          £10 first miss, then ×1.5 each subsequent (£15, £22.50, £33.75…) per player.
+        </p>
+        {playedGws.length === 0 ? (
+          <div className="card p-4 mt-3 italic text-ink/60">No completed gameweeks yet.</div>
+        ) : (
+          <div className="card overflow-x-auto mt-3">
+            <table className="text-xs">
+              <thead className="bg-ink text-paper uppercase">
+                <tr>
+                  <th className="px-2 py-2 text-left sticky left-0 bg-ink z-10">Manager</th>
+                  {playedGws.map((g) => (
+                    <th key={g} className="px-1 py-2 text-center min-w-[40px]">{g}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allPlayers.map((p) => (
+                  <tr key={p.entry_id} className="border-t border-ink/20">
+                    <td className="px-2 py-1 sticky left-0 bg-paper font-bold whitespace-nowrap">
+                      {p.display_name}
+                    </td>
+                    {playedGws.map((g) => {
+                      const key = `${p.entry_id}:${g}`;
+                      const state = reportState.get(key);
+                      const missed = state === "applied";
+                      return (
+                        <td key={g} className="px-1 py-1 text-center">
+                          <form action={toggleMissedReport} className="inline">
+                            <input type="hidden" name="target_entry" value={p.entry_id} />
+                            <input type="hidden" name="gw" value={g} />
+                            <button
+                              type="submit"
+                              title={missed ? "Click to mark as submitted" : "Click to mark as missed"}
+                              className={`w-7 h-7 border-2 border-ink font-bold ${
+                                missed ? "bg-tabloid text-paper" : "bg-bargain/50 text-ink/40 hover:bg-bargain"
+                              }`}
+                            >
+                              {missed ? "✗" : "✓"}
+                            </button>
+                          </form>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Backup form-based missed-report entry (with optional note). */}
+      <section className="card p-5 bg-bargain">
+        <div className="kicker">Missed report (with note)</div>
+        <h2 className="headline text-2xl mt-2">Add with a note</h2>
+        <p className="text-sm mt-1 italic">
+          Use this when you want to attach a note (e.g. &ldquo;reported late, partial credit&rdquo;).
+          Fine auto-escalates per prior offence. No seconding.
         </p>
         <form action={addMissedReport} className="mt-3 grid sm:grid-cols-3 gap-2">
           <select name="target_entry" required className="border-3 border-ink p-2 bg-paper text-sm">

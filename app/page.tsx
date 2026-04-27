@@ -16,13 +16,23 @@ type Aggregate = {
   totalP: number;
   totalPoints: number;
   latestGwPoints: number | null;
-  totalHitsCost: number;        // season total points lost to extra-transfer hits
-  latestGwHitsCost: number;     // hits taken this gameweek
-  weeksWithNegativePoints: number; // count of GWs where net points < 0
+  totalHitsCost: number;
+  latestGwHitsCost: number;
+  weeksWithNegativePoints: number;
   latestGwWentNegative: boolean;
+  // Gloating league
+  proposalsMade: number;
+  proposalsLanded: number;
+  secondingsMade: number;
+  gloatsAgainst: number;
+  gotAway: number;
+  gotCaught: number;
+  gloatPoints: number;
 };
 
-type View = "fines" | "points";
+type View = "fines" | "points" | "gloating";
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function Page({
   searchParams,
@@ -30,14 +40,20 @@ export default async function Page({
   searchParams: Promise<{ view?: string }>;
 }) {
   const { view: viewParam } = await searchParams;
-  const view: View = viewParam === "points" ? "points" : "fines";
+  const view: View =
+    viewParam === "points" ? "points" : viewParam === "gloating" ? "gloating" : "fines";
 
   const supabase = createAdminClient();
 
-  const [{ data: players }, { data: gws }, { data: applied }] = await Promise.all([
+  const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }] = await Promise.all([
     supabase.from("players").select("entry_id, display_name").order("display_name"),
     supabase.from("gameweek_results").select("*"),
     supabase.from("applied_fines").select("*"),
+    supabase
+      .from("fine_proposals")
+      .select("*")
+      .eq("kind", "gloat")
+      .eq("voided", false),
   ]);
 
   if (!players || players.length === 0) {
@@ -65,6 +81,13 @@ export default async function Page({
         latestGwHitsCost: 0,
         weeksWithNegativePoints: 0,
         latestGwWentNegative: false,
+        proposalsMade: 0,
+        proposalsLanded: 0,
+        secondingsMade: 0,
+        gloatsAgainst: 0,
+        gotAway: 0,
+        gotCaught: 0,
+        gloatPoints: 0,
       },
     ]),
   );
@@ -93,9 +116,53 @@ export default async function Page({
     a.totalP = a.loserP + a.belowAvgP + a.gloatsP + a.missedP;
   }
 
+  // Gloating league scoring.
+  // Rules: +3 for proposing a gloat that's seconded within a week.
+  //        +1 for seconding a proposal within a week.
+  //        +1 for being targeted by a stale proposal (not seconded after 7 days).
+  //        -3 for being targeted by a proposal that gets seconded within a week.
+  // Pending proposals (<7 days, no seconder) and late-seconded ones are excluded.
+  const now = Date.now();
+  for (const g of (allGloats ?? []) as FineProposal[]) {
+    const proposer = byEntry.get(g.proposed_by);
+    const target = byEntry.get(g.target_entry);
+    if (proposer) proposer.proposalsMade += 1;
+    if (target) target.gloatsAgainst += 1;
+
+    const proposedAt = new Date(g.proposed_at).getTime();
+    if (g.seconded_at) {
+      const secondedAt = new Date(g.seconded_at).getTime();
+      if (secondedAt - proposedAt <= WEEK_MS) {
+        // Landed in time
+        if (proposer) {
+          proposer.proposalsLanded += 1;
+          proposer.gloatPoints += 3;
+        }
+        const seconder = g.seconded_by != null ? byEntry.get(g.seconded_by) : null;
+        if (seconder) {
+          seconder.secondingsMade += 1;
+          seconder.gloatPoints += 1;
+        }
+        if (target) {
+          target.gotCaught += 1;
+          target.gloatPoints -= 3;
+        }
+      }
+      // Late-seconded = no gloating-league points.
+    } else if (now - proposedAt >= WEEK_MS) {
+      // Stale: target got away with it.
+      if (target) {
+        target.gotAway += 1;
+        target.gloatPoints += 1;
+      }
+    }
+    // else: pending, < 7 days, not seconded — skip.
+  }
+
   const all = [...byEntry.values()];
   const rankedByFines = [...all].sort((a, b) => b.totalP - a.totalP);
   const rankedByPoints = [...all].sort((a, b) => b.totalPoints - a.totalPoints);
+  const rankedByGloating = [...all].sort((a, b) => b.gloatPoints - a.gloatPoints);
 
   const totalPotP = all.reduce((sum, a) => sum + a.totalP, 0);
   const buyInP = buyInPenceFromTotalPot(totalPotP, players.length);
@@ -177,7 +244,7 @@ export default async function Page({
 
       {/* TABS */}
       <section>
-        <div className="flex gap-2 mb-3">
+        <div className="flex gap-2 mb-3 flex-wrap">
           <Link
             href="/?view=points"
             className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
@@ -194,9 +261,17 @@ export default async function Page({
           >
             Shame leaderboard
           </Link>
+          <Link
+            href="/?view=gloating"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "gloating" ? "bg-bargain text-ink" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            Gloating league
+          </Link>
         </div>
 
-        {view === "points" ? (
+        {view === "points" && (
           <>
             <h2 className="headline text-3xl mb-3">
               <span className="kicker">League</span> TABLE
@@ -223,7 +298,7 @@ export default async function Page({
                       <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
                       <td className="px-3 py-2">
                         <Link
-                          href={`/team/${a.player.entry_id}/${latestGw || 1}`}
+                          href={`/team/${a.player.entry_id}`}
                           className="underline decoration-tabloid decoration-2 underline-offset-2"
                         >
                           {a.player.display_name}
@@ -254,7 +329,9 @@ export default async function Page({
               </table>
             </div>
           </>
-        ) : (
+        )}
+
+        {view === "fines" && (
           <>
             <h2 className="headline text-3xl mb-3">
               <span className="shock">SHAME</span> LEADERBOARD
@@ -278,7 +355,7 @@ export default async function Page({
                       <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
                       <td className="px-3 py-2">
                         <Link
-                          href={`/team/${a.player.entry_id}/${latestGw || 1}`}
+                          href={`/team/${a.player.entry_id}`}
                           className="underline decoration-tabloid decoration-2 underline-offset-2"
                         >
                           {a.player.display_name}
@@ -293,6 +370,71 @@ export default async function Page({
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.missedP)}</td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">
                         {formatGbp(a.totalP)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {view === "gloating" && (
+          <>
+            <h2 className="headline text-3xl mb-3">
+              <span className="kicker">Gloating</span> LEAGUE
+            </h2>
+            <div className="card p-4 mb-3 bg-bargain text-sm">
+              <strong className="uppercase tracking-widest text-xs">Scoring</strong>
+              <ul className="mt-1 space-y-1 list-disc list-inside">
+                <li><strong>+3</strong> for proposing a gloat that gets seconded within 7 days</li>
+                <li><strong>+1</strong> for seconding someone else&apos;s proposal within 7 days</li>
+                <li><strong>+1</strong> for being targeted by a proposal that goes stale (no seconder after 7 days) — &ldquo;got away with it&rdquo;</li>
+                <li><strong>−3</strong> for being seconded — &ldquo;you got caught&rdquo;</li>
+              </ul>
+              <p className="text-xs italic mt-2 text-ink/70">
+                Pending (under-7-day) proposals don&apos;t score yet. Voided proposals are excluded entirely.
+              </p>
+            </div>
+            <div className="card overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-right" title="Total proposals submitted by this player">Proposed</th>
+                    <th className="px-3 py-2 text-right" title="Of those, how many got seconded in time">Landed</th>
+                    <th className="px-3 py-2 text-right" title="Times this player rubber-stamped someone else's proposal">Seconded</th>
+                    <th className="px-3 py-2 text-right" title="Total proposals targeting this player">Against</th>
+                    <th className="px-3 py-2 text-right" title="Stale proposals against them — got away with the gloat">Got away</th>
+                    <th className="px-3 py-2 text-right" title="Proposals against them that landed — paid the fine">Caught</th>
+                    <th className="px-3 py-2 text-right" title="£1 per caught proposal">Fines</th>
+                    <th className="px-3 py-2 text-right">Points</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedByGloating.map((a, i) => (
+                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/team/${a.player.entry_id}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.proposalsMade}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.proposalsLanded}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.secondingsMade}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.gloatsAgainst}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.gotAway}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-tabloid">{a.gotCaught}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-tabloid">
+                        {formatGbp(a.gotCaught * GLOAT_FINE_P)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold tabular-nums">
+                        {a.gloatPoints > 0 && "+"}{a.gloatPoints}
                       </td>
                     </tr>
                   ))}

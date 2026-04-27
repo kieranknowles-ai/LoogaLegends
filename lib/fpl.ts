@@ -66,8 +66,15 @@ export type FplHistoryEvent = {
   points_on_bench: number;
 };
 
+export type FplHistoryPastSeason = {
+  season_name: string;
+  total_points: number;
+  rank: number;
+};
+
 export type FplHistory = {
   current: FplHistoryEvent[];
+  past: FplHistoryPastSeason[];
 };
 
 export type FplPicksEntry = {

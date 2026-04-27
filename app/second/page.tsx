@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatGbp } from "@/lib/scoring";
 import { secondProposal } from "./actions";
-import type { FineProposal, Player } from "@/lib/db-types";
+import { GLOAT_REASON_LABELS, type FineProposal, type Player } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +55,9 @@ export default async function SecondPage() {
           <div key={p.id} className="card p-4 flex items-center justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-widest text-ink/60">
-                {p.kind === "gloat" ? "Gloat" : `Missed report · GW ${p.gw}`} · proposed by {nameOf(p.proposed_by)}
+                {p.kind === "gloat"
+                  ? `Gloat${p.gloat_date ? ` · ${p.gloat_date}` : ""}${p.gloat_reason ? ` · ${GLOAT_REASON_LABELS[p.gloat_reason]}` : ""}`
+                  : `Missed report · GW ${p.gw}`} · proposed by {nameOf(p.proposed_by)}
               </div>
               <div className="headline text-2xl mt-1">
                 {nameOf(p.target_entry)} <span className="text-tabloid">— {formatGbp(p.fine_p)}</span>
