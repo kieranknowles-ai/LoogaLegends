@@ -862,15 +862,15 @@ export default async function Page({
         );
       })()}
 
-      <section className="card p-6 bg-tabloid text-paper text-center">
-        <div className="kicker bg-paper text-ink">Witness a misdemeanour?</div>
+      <section className="card p-6 bg-bargain text-center">
+        <div className="kicker">Witness a misdemeanour?</div>
         <h2 className="headline text-3xl md:text-5xl mt-3">REPORT A CRIME</h2>
         <p className="mt-2 text-sm italic">
           Gloat (£1, needs a second within 7 days) or emoji (50p, instant). Pick on the next page.
         </p>
         <Link
           href="/propose"
-          className="inline-block mt-4 px-8 py-4 bg-paper text-ink border-3 border-paper font-display text-2xl uppercase tracking-widest shadow-[6px_6px_0_0_#0a0a0a] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0_0_#0a0a0a]"
+          className="inline-block mt-4 px-8 py-4 bg-tabloid text-paper border-3 border-ink font-display text-2xl uppercase tracking-widest shadow-[6px_6px_0_0_#0a0a0a] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0_0_#0a0a0a]"
         >
           ▶ Report it
         </Link>
