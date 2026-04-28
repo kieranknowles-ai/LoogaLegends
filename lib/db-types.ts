@@ -10,6 +10,7 @@ export type Player = {
   is_admin: boolean;
   joined_at: string;
   bio: string | null;
+  ai_caught_count: number;
 };
 
 export type GameweekResult = {
@@ -25,7 +26,7 @@ export type GameweekResult = {
   squad_value: number;
 };
 
-export type FineKind = "gloat" | "missed_report";
+export type FineKind = "gloat" | "missed_report" | "emoji";
 
 export type GloatReason =
   | "general_arrogance"
@@ -55,4 +56,13 @@ export type FineProposal = {
   voided_reason: string | null;
   gloat_date: string | null;
   gloat_reason: GloatReason | null;
+  emoji: string | null;
 };
+
+export const EMOJI_FINE_P = 50; // 50p per emoji used.
+
+export const COMMON_EMOJIS = [
+  "😂", "🤣", "😅", "😭", "🤔", "👀", "💀", "🫡",
+  "🔥", "💪", "🏆", "🤷", "🙌", "🥳", "💯", "🤡",
+  "😎", "🫠", "🙄", "👏",
+];

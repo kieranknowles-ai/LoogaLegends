@@ -148,7 +148,9 @@ export default async function AdminPage({
                     return (
                       <div key={p.entry_id} className="flex items-center justify-between px-4 py-3">
                         <div className="font-bold">
-                          {p.display_name}
+                          <Link href={`/team/${p.entry_id}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
+                            {p.display_name}
+                          </Link>
                           {missed && (
                             <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">
                               — missed
@@ -201,10 +203,18 @@ export default async function AdminPage({
                 <tr key={p.id} className={`border-t border-ink/20 ${p.voided ? "opacity-50" : ""}`}>
                   <td className="px-2 py-2 whitespace-nowrap">{new Date(p.proposed_at).toLocaleDateString()}</td>
                   <td className="px-2 py-2">{p.kind}{p.gw ? ` GW${p.gw}` : ""}</td>
-                  <td className="px-2 py-2">{nameOf(p.target_entry)}</td>
+                  <td className="px-2 py-2">
+                    <Link href={`/team/${p.target_entry}`} className="underline decoration-tabloid">{nameOf(p.target_entry)}</Link>
+                  </td>
                   <td className="px-2 py-2 text-right tabular-nums">{formatGbp(p.fine_p)}</td>
-                  <td className="px-2 py-2">{nameOf(p.proposed_by)}</td>
-                  <td className="px-2 py-2">{p.seconded_by ? nameOf(p.seconded_by) : "—"}</td>
+                  <td className="px-2 py-2">
+                    <Link href={`/team/${p.proposed_by}`} className="underline">{nameOf(p.proposed_by)}</Link>
+                  </td>
+                  <td className="px-2 py-2">
+                    {p.seconded_by ? (
+                      <Link href={`/team/${p.seconded_by}`} className="underline">{nameOf(p.seconded_by)}</Link>
+                    ) : "—"}
+                  </td>
                   <td className="px-2 py-2">
                     {p.voided ? "voided" : p.seconded_at ? "applied" : "pending"}
                   </td>

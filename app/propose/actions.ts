@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GLOAT_FINE_P } from "@/lib/scoring";
 import { getBootstrap } from "@/lib/fpl";
-import { GLOAT_REASON_LABELS, type GloatReason } from "@/lib/db-types";
+import { COMMON_EMOJIS, EMOJI_FINE_P, GLOAT_REASON_LABELS, type GloatReason } from "@/lib/db-types";
 
 const VALID_REASONS = Object.keys(GLOAT_REASON_LABELS) as GloatReason[];
 
@@ -57,5 +57,44 @@ export async function proposeFine(formData: FormData) {
 
   revalidatePath("/second");
   revalidatePath("/propose");
-  redirect("/second");
+  redirect("/");
+}
+
+/**
+ * Emoji fines auto-apply (no seconding). Reporter picks the perpetrator (not the victim
+ * — the perpetrator is whoever used the emoji), the date, and selects the offending
+ * emoji from a curated list. 50p per fine. We don't believe in emojis.
+ */
+export async function proposeEmoji(formData: FormData) {
+  const session = await getSession();
+  if (!session) redirect("/login?next=/propose");
+
+  const targetEntry = Number(formData.get("target_entry"));
+  const note = String(formData.get("note") ?? "").trim() || null;
+  const offenceDate = String(formData.get("offence_date") ?? "").trim();
+  const emoji = String(formData.get("emoji") ?? "").trim();
+
+  if (!Number.isFinite(targetEntry)) throw new Error("Pick the perpetrator.");
+  if (!offenceDate) throw new Error("Pick a date.");
+  if (!emoji || !COMMON_EMOJIS.includes(emoji)) throw new Error("Pick an emoji.");
+
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+  const { error } = await admin.from("fine_proposals").insert({
+    kind: "emoji",
+    target_entry: targetEntry,
+    gw: null,
+    fine_p: EMOJI_FINE_P,
+    note,
+    proposed_by: session.entry_id,
+    seconded_by: session.entry_id, // self-applied (admin-style)
+    seconded_at: now,
+    gloat_date: offenceDate,
+    emoji,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/");
+  revalidatePath("/propose");
+  redirect("/");
 }

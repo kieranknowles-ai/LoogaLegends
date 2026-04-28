@@ -3,11 +3,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { buyInPenceFromTotalPot, formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
 import { getSession } from "@/lib/auth";
 import { secondProposal } from "./second/actions";
+import { triggerAiTrap } from "./actions/ai-trap";
 import { GLOAT_REASON_LABELS, type GameweekResult, type Player, type FineProposal } from "@/lib/db-types";
+
+const AI_FINE_P = 500; // £5 per click
+const AI_GLOAT_PENALTY = -10; // per click
 
 export const dynamic = "force-dynamic";
 
-type PlayerRow = Pick<Player, "entry_id" | "display_name">;
+type PlayerRow = Pick<Player, "entry_id" | "display_name" | "ai_caught_count">;
 
 type Aggregate = {
   player: PlayerRow;
@@ -15,6 +19,8 @@ type Aggregate = {
   belowAvgP: number;
   gloatsP: number;
   missedP: number;
+  emojiP: number;
+  aiP: number;
   totalP: number;
   totalPoints: number;
   latestGwPoints: number | null;
@@ -112,7 +118,7 @@ export default async function Page({
   const session = await getSession();
 
   const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }] = await Promise.all([
-    supabase.from("players").select("entry_id, display_name").order("display_name"),
+    supabase.from("players").select("entry_id, display_name, ai_caught_count").order("display_name"),
     supabase.from("gameweek_results").select("*"),
     supabase.from("applied_fines").select("*"),
     supabase
@@ -147,6 +153,8 @@ export default async function Page({
         belowAvgP: 0,
         gloatsP: 0,
         missedP: 0,
+        emojiP: 0,
+        aiP: 0,
         totalP: 0,
         totalPoints: 0,
         latestGwPoints: null,
@@ -187,10 +195,13 @@ export default async function Page({
     const a = byEntry.get(f.target_entry);
     if (!a) continue;
     if (f.kind === "gloat") a.gloatsP += f.fine_p;
-    else a.missedP += f.fine_p;
+    else if (f.kind === "missed_report") a.missedP += f.fine_p;
+    else if (f.kind === "emoji") a.emojiP += f.fine_p;
   }
   for (const a of byEntry.values()) {
-    a.totalP = a.loserP + a.belowAvgP + a.gloatsP + a.missedP;
+    a.aiP = a.player.ai_caught_count * AI_FINE_P;
+    a.gloatPoints += a.player.ai_caught_count * AI_GLOAT_PENALTY;
+    a.totalP = a.loserP + a.belowAvgP + a.gloatsP + a.missedP + a.emojiP + a.aiP;
   }
 
   // Gloating league scoring.
@@ -314,12 +325,16 @@ export default async function Page({
           <div className="grid md:grid-cols-3 gap-4 mt-3">
             <div>
               <div className="text-xs uppercase tracking-widest text-ink/60">Top of the table</div>
-              <div className="headline text-3xl">{nameOf(latestWinner.entry_id)}</div>
+              <Link href={`/team/${latestWinner.entry_id}`} className="headline text-3xl underline decoration-tabloid decoration-2 underline-offset-2 block">
+                {nameOf(latestWinner.entry_id)}
+              </Link>
               <div className="text-sm">{latestWinner.points} pts</div>
             </div>
             <div>
               <div className="text-xs uppercase tracking-widest text-ink/60">Bottom of the bin</div>
-              <div className="headline text-3xl text-tabloid">{nameOf(latestLoser.entry_id)}</div>
+              <Link href={`/team/${latestLoser.entry_id}`} className="headline text-3xl text-tabloid underline decoration-ink decoration-2 underline-offset-2 block">
+                {nameOf(latestLoser.entry_id)}
+              </Link>
               <div className="text-sm">
                 {latestLoser.points} pts · owes {formatGbp(latestLoser.loser_fine_p)}
               </div>
@@ -337,12 +352,16 @@ export default async function Page({
               {negativeThisWeek.map((a) => (
                 <div key={`neg-${a.player.entry_id}`}>
                   <span className="shock">SHOCKER</span>{" "}
-                  <strong>{a.player.display_name}</strong> went into the red — {a.latestGwPoints} pts.
+                  <Link href={`/team/${a.player.entry_id}`} className="font-bold underline decoration-tabloid">
+                    {a.player.display_name}
+                  </Link> went into the red — {a.latestGwPoints} pts.
                 </div>
               ))}
               {hitsThisWeek.map((a) => (
                 <div key={`hit-${a.player.entry_id}`} className="text-ink/70">
-                  ⚠️ <strong>{a.player.display_name}</strong> took a {-a.latestGwHitsCost} hit ({a.latestGwPoints} pts net).
+                  ⚠️ <Link href={`/team/${a.player.entry_id}`} className="font-bold underline">
+                    {a.player.display_name}
+                  </Link> took a {-a.latestGwHitsCost} hit ({a.latestGwPoints} pts net).
                 </div>
               ))}
             </div>
@@ -392,10 +411,23 @@ export default async function Page({
                         {p.gloat_date && ` · ${p.gloat_date}`}
                         {" · proposed "}
                         {ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`}
-                        {" by "}{proposer?.player.display_name ?? `#${p.proposed_by}`}
+                        {" by "}
+                        {proposer ? (
+                          <Link href={`/team/${proposer.player.entry_id}`} className="underline">
+                            {proposer.player.display_name}
+                          </Link>
+                        ) : (
+                          `#${p.proposed_by}`
+                        )}
                       </div>
                       <div className="headline text-2xl mt-1">
-                        {target?.player.display_name ?? `#${p.target_entry}`}
+                        {target ? (
+                          <Link href={`/team/${target.player.entry_id}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
+                            {target.player.display_name}
+                          </Link>
+                        ) : (
+                          `#${p.target_entry}`
+                        )}
                         <span className="text-tabloid"> — {formatGbp(p.fine_p)}</span>
                       </div>
                       {p.note && <div className="mt-1 text-sm italic">&ldquo;{p.note}&rdquo;</div>}
@@ -473,6 +505,22 @@ export default async function Page({
             <h2 className="headline text-3xl mb-3">
               <span className="kicker">League</span> TABLE
             </h2>
+            {(() => {
+              const easyThird = rankedByPoints[2];
+              if (!easyThird) return null;
+              return (
+                <div className="card p-4 mb-3 bg-bargain border-l-8 border-ink">
+                  <div className="kicker">★ Easy Third ★</div>
+                  <div className="headline text-2xl mt-2">
+                    {easyThird.player.display_name}{" "}
+                    <span className="text-tabloid">— picks the venue</span>
+                  </div>
+                  <div className="text-sm italic mt-1">
+                    The lauded third-place spot. Currently held with {easyThird.totalPoints} pts.
+                  </div>
+                </div>
+              );
+            })()}
             <div className="card overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-ink text-paper uppercase text-xs">
@@ -490,18 +538,33 @@ export default async function Page({
                   </tr>
                 </thead>
                 <tbody>
-                  {rankedByPoints.map((a, i) => (
-                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
-                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                  {rankedByPoints.map((a, i) => {
+                    const isEasyThird = a.player.entry_id === easyThirdEntry;
+                    return (
+                    <tr
+                      key={a.player.entry_id}
+                      className={`border-t border-ink/20 ${
+                        isEasyThird
+                          ? "bg-bargain border-y-4 border-ink"
+                          : "hover:bg-bargain/30"
+                      }`}
+                    >
+                      <td className={`px-3 py-2 font-display text-lg ${isEasyThird ? "text-2xl" : ""}`}>
+                        {isEasyThird ? "🏆" : i + 1}
+                      </td>
                       <td className="px-3 py-2">
                         <Link
                           href={`/team/${a.player.entry_id}`}
-                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                          className={`underline decoration-tabloid decoration-2 underline-offset-2 ${
+                            isEasyThird ? "font-display text-xl uppercase" : ""
+                          }`}
                         >
                           {a.player.display_name}
                         </Link>
-                        {a.player.entry_id === easyThirdEntry && (
-                          <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
+                        {isEasyThird && (
+                          <div className="mt-1">
+                            <span className="shock text-[11px]">★ EASY THIRD ★ Picks the venue</span>
+                          </div>
                         )}
                         {a.weeksWithNegativePoints > 0 && (
                           <span className="ml-2 text-[10px] uppercase tracking-widest text-tabloid">
@@ -521,7 +584,8 @@ export default async function Page({
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-ink/60">{formatGbp(a.totalP)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -542,7 +606,9 @@ export default async function Page({
                     <th className="px-3 py-2 text-right">Loser fines</th>
                     <th className="px-3 py-2 text-right">Below avg</th>
                     <th className="px-3 py-2 text-right">Gloats</th>
+                    <th className="px-3 py-2 text-right">Emojis</th>
                     <th className="px-3 py-2 text-right">Missed reports</th>
+                    <th className="px-3 py-2 text-right">AI cheats</th>
                     <th className="px-3 py-2 text-right">Owed</th>
                   </tr>
                 </thead>
@@ -557,14 +623,13 @@ export default async function Page({
                         >
                           {a.player.display_name}
                         </Link>
-                        {a.player.entry_id === easyThirdEntry && (
-                          <span className="ml-2 shock text-[10px]">Easy 3rd · venue picker</span>
-                        )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.loserP)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.belowAvgP)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.gloatsP)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.emojiP)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.missedP)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.aiP)}</td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">
                         {formatGbp(a.totalP)}
                       </td>
@@ -750,14 +815,65 @@ export default async function Page({
         )}
       </section>
 
-      <section className="card p-5 bg-bargain">
-        <div className="kicker">Want to dish it out?</div>
-        <p className="mt-2 text-sm">
-          Spotted a gloat in the chat? Hit{" "}
-          <Link href="/propose" className="underline font-bold">propose</Link> — it&apos;ll then appear in &ldquo;Active Gloats&rdquo;
-          above for any other member to second within 7 days. Target can&apos;t second their own. After 7 days
-          unseconded, the gloat goes stale and the target gets away with it.
+      {/* AI bait button — looks legit. Click is silently logged + £5 fine + -10 gloating points. */}
+      <section className="text-center mt-4">
+        <form action={triggerAiTrap} className="inline-block">
+          <button
+            type="submit"
+            className="px-5 py-3 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-indigo-500 text-white font-bold uppercase tracking-widest text-sm border-3 border-ink shadow-[4px_4px_0_0_#0a0a0a] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_0_#0a0a0a]"
+          >
+            ✨ Generate report with AI
+          </button>
+        </form>
+        <p className="mt-1 text-xs italic text-ink/50">Beta · auto-drafts your loss report from the gameweek data</p>
+      </section>
+
+      {(() => {
+        const caught = all.filter((a) => a.player.ai_caught_count > 0).sort(
+          (a, b) => b.player.ai_caught_count - a.player.ai_caught_count,
+        );
+        if (caught.length === 0) return null;
+        return (
+          <section className="card p-5 bg-tabloid text-paper">
+            <div className="kicker bg-paper text-ink">Caught red-handed</div>
+            <h2 className="headline text-3xl mt-2">HALL OF AI SHAME</h2>
+            <p className="text-sm italic mt-1">
+              These managers tried to outsource their loss report to a bot. £5 per click + -10 gloating points each. Public record.
+            </p>
+            <ul className="mt-3 space-y-1">
+              {caught.map((a) => (
+                <li key={a.player.entry_id} className="flex items-baseline gap-2">
+                  <Link
+                    href={`/team/${a.player.entry_id}`}
+                    className="font-display text-xl underline decoration-paper decoration-2 underline-offset-2"
+                  >
+                    {a.player.display_name}
+                  </Link>
+                  <span className="text-sm">
+                    × {a.player.ai_caught_count} {a.player.ai_caught_count === 1 ? "time" : "times"}
+                    {" — "}
+                    {formatGbp(a.player.ai_caught_count * AI_FINE_P)} owed,{" "}
+                    {a.player.ai_caught_count * AI_GLOAT_PENALTY} gloat pts
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })()}
+
+      <section className="card p-6 bg-tabloid text-paper text-center">
+        <div className="kicker bg-paper text-ink">Witness a misdemeanour?</div>
+        <h2 className="headline text-3xl md:text-5xl mt-3">REPORT A CRIME</h2>
+        <p className="mt-2 text-sm italic">
+          Gloat (£1, needs a second within 7 days) or emoji (50p, instant). Pick on the next page.
         </p>
+        <Link
+          href="/propose"
+          className="inline-block mt-4 px-8 py-4 bg-paper text-ink border-3 border-paper font-display text-2xl uppercase tracking-widest shadow-[6px_6px_0_0_#0a0a0a] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[4px_4px_0_0_#0a0a0a]"
+        >
+          ▶ Report it
+        </Link>
       </section>
     </div>
   );
