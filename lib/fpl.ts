@@ -100,7 +100,9 @@ export type FplPicks = {
 async function fplFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${FPL_BASE}${path}`, {
     headers: { "user-agent": "fpl-league-dashboard/0.1" },
-    next: { revalidate: 60 },
+    // Bypass Next.js data cache. bootstrap-static is ~2.6 MB which exceeds
+    // Next.js 16's 2 MB cache item limit and causes hard errors.
+    cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`FPL ${path} → ${res.status}`);
@@ -108,8 +110,18 @@ async function fplFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function getBootstrap(): Promise<FplBootstrap> {
-  return fplFetch<FplBootstrap>("/bootstrap-static/");
+// Module-level memo so a warm Vercel function reuses the 2.6 MB bootstrap
+// across multiple page renders within ~5 minutes.
+let bootstrapMemo: { data: FplBootstrap; ts: number } | null = null;
+const BOOTSTRAP_TTL_MS = 5 * 60 * 1000;
+
+export async function getBootstrap(): Promise<FplBootstrap> {
+  if (bootstrapMemo && Date.now() - bootstrapMemo.ts < BOOTSTRAP_TTL_MS) {
+    return bootstrapMemo.data;
+  }
+  const data = await fplFetch<FplBootstrap>("/bootstrap-static/");
+  bootstrapMemo = { data, ts: Date.now() };
+  return data;
 }
 
 export async function getLeagueStandings(leagueId: number): Promise<FplStandingsEntry[]> {
