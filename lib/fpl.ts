@@ -146,3 +146,24 @@ export function getEntryHistory(entryId: number): Promise<FplHistory> {
 export function getEntryPicks(entryId: number, gw: number): Promise<FplPicks> {
   return fplFetch<FplPicks>(`/entry/${entryId}/event/${gw}/picks/`);
 }
+
+export type FplEventLiveElement = {
+  id: number;
+  stats: {
+    total_points: number;
+    minutes: number;
+    goals_scored: number;
+    assists: number;
+    bonus: number;
+    yellow_cards: number;
+    red_cards: number;
+  };
+};
+
+export type FplEventLive = {
+  elements: FplEventLiveElement[];
+};
+
+export function getEventLive(gw: number): Promise<FplEventLive> {
+  return fplFetch<FplEventLive>(`/event/${gw}/live/`);
+}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getBootstrap, getEntryPicks } from "@/lib/fpl";
+import { getBootstrap, getEntryPicks, getEventLive } from "@/lib/fpl";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -23,9 +23,10 @@ export default async function TeamPage({
     .maybeSingle();
 
   let picks: Awaited<ReturnType<typeof getEntryPicks>> | null = null;
+  let live: Awaited<ReturnType<typeof getEventLive>> | null = null;
   let errorMsg: string | null = null;
   try {
-    picks = await getEntryPicks(entryId, gw);
+    [picks, live] = await Promise.all([getEntryPicks(entryId, gw), getEventLive(gw)]);
   } catch (err) {
     errorMsg = err instanceof Error ? err.message : "Failed to fetch team.";
   }
@@ -33,6 +34,9 @@ export default async function TeamPage({
   const bootstrap = await getBootstrap();
   const elementsById = new Map(bootstrap.elements.map((e) => [e.id, e]));
   const teamsById = new Map(bootstrap.teams.map((t) => [t.id, t]));
+  const livePointsById = new Map(
+    (live?.elements ?? []).map((e) => [e.id, e.stats.total_points] as const),
+  );
 
   return (
     <div className="space-y-4">
@@ -64,6 +68,8 @@ export default async function TeamPage({
                 <th className="px-2 py-2 text-left">Pos</th>
                 <th className="px-2 py-2 text-left">Team</th>
                 <th className="px-2 py-2 text-left">Captain</th>
+                <th className="px-2 py-2 text-right">Pts</th>
+                <th className="px-2 py-2 text-right">Counted</th>
               </tr>
             </thead>
             <tbody>
@@ -71,6 +77,8 @@ export default async function TeamPage({
                 const el = elementsById.get(p.element);
                 const team = el ? teamsById.get(el.team) : null;
                 const onBench = p.position > 11;
+                const rawPts = livePointsById.get(p.element);
+                const counted = rawPts != null ? rawPts * p.multiplier : null;
                 return (
                   <tr key={p.element} className={`border-t border-ink/20 ${onBench ? "opacity-60" : ""}`}>
                     <td className="px-2 py-2 tabular-nums">{p.position}{onBench && " (bench)"}</td>
@@ -82,6 +90,12 @@ export default async function TeamPage({
                     <td className="px-2 py-2">
                       {p.is_captain ? "★ C" : p.is_vice_captain ? "VC" : ""}
                       {p.multiplier > 1 && p.multiplier !== 2 && ` (${p.multiplier}x)`}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {rawPts ?? "—"}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums font-bold">
+                      {counted == null ? "—" : onBench ? "0" : counted}
                     </td>
                   </tr>
                 );
