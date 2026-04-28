@@ -61,9 +61,11 @@ export async function proposeFine(formData: FormData) {
 }
 
 /**
- * Emoji fines auto-apply (no seconding). Reporter picks the perpetrator (not the victim
- * — the perpetrator is whoever used the emoji), the date, and selects the offending
- * emoji from a curated list. 50p per fine. We don't believe in emojis.
+ * Emoji fines auto-apply. Reporter picks the perpetrator and date.
+ * Selecting an offending emoji from the palette is OPTIONAL — but if the reporter
+ * picks one, they also get fined £0.50 themselves, because using an emoji to report
+ * an emoji is, itself, a crime. The home page surfaces the "no need for the emoji"
+ * reveal via a flash banner on ?caught_emoji=1.
  */
 export async function proposeEmoji(formData: FormData) {
   const session = await getSession();
@@ -72,29 +74,52 @@ export async function proposeEmoji(formData: FormData) {
   const targetEntry = Number(formData.get("target_entry"));
   const note = String(formData.get("note") ?? "").trim() || null;
   const offenceDate = String(formData.get("offence_date") ?? "").trim();
-  const emoji = String(formData.get("emoji") ?? "").trim();
+  const emojiRaw = String(formData.get("emoji") ?? "").trim();
+  const reporterUsedEmoji = emojiRaw && COMMON_EMOJIS.includes(emojiRaw);
+  const emoji = reporterUsedEmoji ? emojiRaw : null;
 
   if (!Number.isFinite(targetEntry)) throw new Error("Pick the perpetrator.");
   if (!offenceDate) throw new Error("Pick a date.");
-  if (!emoji || !COMMON_EMOJIS.includes(emoji)) throw new Error("Pick an emoji.");
 
   const admin = createAdminClient();
   const now = new Date().toISOString();
-  const { error } = await admin.from("fine_proposals").insert({
-    kind: "emoji",
-    target_entry: targetEntry,
-    gw: null,
-    fine_p: EMOJI_FINE_P,
-    note,
-    proposed_by: session.entry_id,
-    seconded_by: session.entry_id, // self-applied (admin-style)
-    seconded_at: now,
-    gloat_date: offenceDate,
-    emoji,
-  });
+
+  // Always fine the perpetrator.
+  const rows = [
+    {
+      kind: "emoji",
+      target_entry: targetEntry,
+      gw: null,
+      fine_p: EMOJI_FINE_P,
+      note,
+      proposed_by: session.entry_id,
+      seconded_by: session.entry_id,
+      seconded_at: now,
+      gloat_date: offenceDate,
+      emoji,
+    },
+  ];
+
+  // The trap: if the reporter picked an emoji, fine the reporter too.
+  if (reporterUsedEmoji) {
+    rows.push({
+      kind: "emoji",
+      target_entry: session.entry_id,
+      gw: null,
+      fine_p: EMOJI_FINE_P,
+      note: `Used ${emojiRaw} while reporting an emoji crime. There's no need for the emoji!`,
+      proposed_by: session.entry_id,
+      seconded_by: session.entry_id,
+      seconded_at: now,
+      gloat_date: offenceDate,
+      emoji: emojiRaw,
+    });
+  }
+
+  const { error } = await admin.from("fine_proposals").insert(rows);
   if (error) throw new Error(error.message);
 
   revalidatePath("/");
   revalidatePath("/propose");
-  redirect("/");
+  redirect(reporterUsedEmoji ? "/?caught_emoji=1" : "/");
 }

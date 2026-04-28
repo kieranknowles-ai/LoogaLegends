@@ -127,7 +127,7 @@ export default async function ProposePage() {
 
           <div>
             <label className="block text-xs uppercase font-bold tracking-widest mb-2">
-              The offending emoji <span className="font-normal italic">(pick one)</span>
+              The offending emoji <span className="font-normal italic">(optional)</span>
             </label>
             <div className="flex flex-wrap gap-2">
               {COMMON_EMOJIS.map((e) => (
@@ -135,7 +135,7 @@ export default async function ProposePage() {
                   key={e}
                   className="cursor-pointer border-3 border-ink bg-paper hover:bg-tabloid hover:text-paper px-3 py-2 text-2xl has-[:checked]:bg-tabloid has-[:checked]:text-paper"
                 >
-                  <input type="radio" name="emoji" value={e} required className="sr-only" />
+                  <input type="radio" name="emoji" value={e} className="sr-only" />
                   {e}
                 </label>
               ))}

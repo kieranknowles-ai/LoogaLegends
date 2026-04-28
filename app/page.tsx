@@ -100,9 +100,9 @@ function Sparkline({ values, players }: { values: (number | null)[]; players: nu
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; caught_emoji?: string }>;
 }) {
-  const { view: viewParam } = await searchParams;
+  const { view: viewParam, caught_emoji: caughtEmoji } = await searchParams;
   const view: View =
     viewParam === "points"
       ? "points"
@@ -305,6 +305,17 @@ export default async function Page({
 
   return (
     <div className="space-y-8">
+      {/* Emoji-trap reveal banner */}
+      {caughtEmoji === "1" && (
+        <section className="card p-4 bg-tabloid text-paper">
+          <div className="kicker bg-paper text-ink">Gotcha</div>
+          <h2 className="headline text-2xl mt-2">There&apos;s no need for the emoji!</h2>
+          <p className="text-sm italic mt-1">
+            You picked an emoji while reporting an emoji crime. That&apos;s also a 50p fine. We don&apos;t believe in emojis.
+          </p>
+        </section>
+      )}
+
       {/* HERO */}
       <section>
         <div className="kicker text-xs">Gameweek {latestGw || "—"} · Exclusive</div>
@@ -982,13 +993,15 @@ export default async function Page({
       </section>
 
       {(() => {
+        // Admin-only — public visibility would reveal the trap and the bait stops working.
+        if (!session?.is_admin) return null;
         const caught = all.filter((a) => a.player.ai_caught_count > 0).sort(
           (a, b) => b.player.ai_caught_count - a.player.ai_caught_count,
         );
         if (caught.length === 0) return null;
         return (
           <section className="card p-5 bg-tabloid text-paper">
-            <div className="kicker bg-paper text-ink">Caught red-handed</div>
+            <div className="kicker bg-paper text-ink">Admin-only · Caught red-handed</div>
             <h2 className="headline text-3xl mt-2">HALL OF AI SHAME</h2>
             <p className="text-sm italic mt-1">
               These managers tried to outsource their loss report to a bot. £5 per click + -10 gloating points each. Public record.
