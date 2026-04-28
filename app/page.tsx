@@ -32,9 +32,61 @@ type Aggregate = {
   gloatPoints: number;
 };
 
-type View = "fines" | "points" | "gloating";
+type View = "fines" | "points" | "gloating" | "momentum";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MOMENTUM_WINDOW = 10;
+
+type MomentumRow = {
+  player: PlayerRow;
+  ranks: (number | null)[];
+  avgRank: number;
+  trend: "up" | "down" | "flat";
+};
+
+function Sparkline({ values, players }: { values: (number | null)[]; players: number }) {
+  const W = 100;
+  const H = 28;
+  const P = 3;
+  const n = values.length;
+  const x = (i: number) => P + (i * (W - 2 * P)) / Math.max(n - 1, 1);
+  const y = (v: number) => P + ((v - 1) * (H - 2 * P)) / Math.max(players - 1, 1);
+
+  // Build polyline path with breaks for nulls.
+  const segments: string[] = [];
+  let current: string[] = [];
+  values.forEach((v, i) => {
+    if (v == null) {
+      if (current.length) segments.push(current.join(" "));
+      current = [];
+    } else {
+      current.push(`${current.length === 0 ? "M" : "L"} ${x(i)} ${y(v)}`);
+    }
+  });
+  if (current.length) segments.push(current.join(" "));
+
+  const lastIdx = (() => {
+    for (let i = values.length - 1; i >= 0; i--) if (values[i] != null) return i;
+    return -1;
+  })();
+  const lastVal = lastIdx >= 0 ? values[lastIdx] : null;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-24 h-7" role="img">
+      <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="rgba(0,0,0,0.1)" strokeWidth="1" />
+      <line x1={P} y1={P} x2={W - P} y2={P} stroke="rgba(0,0,0,0.1)" strokeWidth="1" />
+      <path d={segments.join(" ")} fill="none" stroke="#0a0a0a" strokeWidth="1.5" strokeLinejoin="round" />
+      {values.map((v, i) =>
+        v == null ? null : (
+          <circle key={i} cx={x(i)} cy={y(v)} r="1.5" fill="#0a0a0a" />
+        ),
+      )}
+      {lastVal != null && (
+        <circle cx={x(lastIdx)} cy={y(lastVal)} r="3" fill="#c8102e" />
+      )}
+    </svg>
+  );
+}
 
 export default async function Page({
   searchParams,
@@ -43,7 +95,13 @@ export default async function Page({
 }) {
   const { view: viewParam } = await searchParams;
   const view: View =
-    viewParam === "points" ? "points" : viewParam === "gloating" ? "gloating" : "fines";
+    viewParam === "points"
+      ? "points"
+      : viewParam === "gloating"
+      ? "gloating"
+      : viewParam === "momentum"
+      ? "momentum"
+      : "fines";
 
   const supabase = createAdminClient();
   const session = await getSession();
@@ -173,6 +231,37 @@ export default async function Page({
   const rankedByFines = [...all].sort((a, b) => b.totalP - a.totalP);
   const rankedByPoints = [...all].sort((a, b) => b.totalPoints - a.totalPoints);
   const rankedByGloating = [...all].sort((a, b) => b.gloatPoints - a.gloatPoints);
+
+  // Momentum: intra-league position per GW for the last N GWs.
+  const playedGws = Array.from(new Set(gwResults.map((r) => r.gw))).sort((a, b) => a - b);
+  const recentGws = playedGws.slice(-MOMENTUM_WINDOW);
+  const ranksByEntryByGw = new Map<number, Map<number, number>>();
+  for (const gw of recentGws) {
+    const sorted = gwResults.filter((r) => r.gw === gw).sort((a, b) => b.points - a.points);
+    sorted.forEach((r, i) => {
+      let m = ranksByEntryByGw.get(r.entry_id);
+      if (!m) {
+        m = new Map();
+        ranksByEntryByGw.set(r.entry_id, m);
+      }
+      m.set(gw, i + 1);
+    });
+  }
+  const momentum: MomentumRow[] = players.map((p) => {
+    const ranks = recentGws.map((gw) => ranksByEntryByGw.get(p.entry_id)?.get(gw) ?? null);
+    const valid = ranks.filter((r): r is number => r != null);
+    const avgRank = valid.length ? valid.reduce((s, r) => s + r, 0) / valid.length : 0;
+    let trend: "up" | "down" | "flat" = "flat";
+    if (valid.length >= 4) {
+      const half = Math.floor(valid.length / 2);
+      const earlyAvg = valid.slice(0, half).reduce((s, r) => s + r, 0) / half;
+      const lateAvg = valid.slice(half).reduce((s, r) => s + r, 0) / (valid.length - half);
+      if (lateAvg < earlyAvg - 0.3) trend = "up";
+      else if (lateAvg > earlyAvg + 0.3) trend = "down";
+    }
+    return { player: p, ranks, avgRank, trend };
+  });
+  const rankedByMomentum = momentum.slice().sort((a, b) => a.avgRank - b.avgRank);
 
   const totalPotP = all.reduce((sum, a) => sum + a.totalP, 0);
   const buyInP = buyInPenceFromTotalPot(totalPotP, players.length);
@@ -352,6 +441,14 @@ export default async function Page({
           >
             Gloating league
           </Link>
+          <Link
+            href="/?view=momentum"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "momentum" ? "bg-ink text-paper" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            Momentum
+          </Link>
         </div>
 
         {view === "points" && (
@@ -453,6 +550,64 @@ export default async function Page({
                       <td className="px-3 py-2 text-right tabular-nums">{formatGbp(a.missedP)}</td>
                       <td className="px-3 py-2 text-right font-bold tabular-nums">
                         {formatGbp(a.totalP)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {view === "momentum" && (
+          <>
+            <h2 className="headline text-3xl mb-3">
+              <span className="kicker">Momentum</span> LEADERBOARD
+            </h2>
+            <p className="text-sm italic mb-3">
+              Form over the last {recentGws.length} GW{recentGws.length === 1 ? "" : "s"}.
+              Each line shows weekly intra-league position (1 at top, {players.length} at bottom). Sorted by best average position.
+              Trend = average of latest half vs first half.
+            </p>
+            <div className="card overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-left" title={`GW${recentGws[0]} → GW${recentGws[recentGws.length - 1]}`}>
+                      Form (GW{recentGws[0] ?? "—"}–GW{recentGws[recentGws.length - 1] ?? "—"})
+                    </th>
+                    <th className="px-3 py-2 text-right">Avg pos</th>
+                    <th className="px-3 py-2 text-center">Trend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedByMomentum.map((m, i) => (
+                    <tr key={m.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/team/${m.player.entry_id}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                        >
+                          {m.player.display_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Sparkline values={m.ranks} players={players.length} />
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {m.avgRank > 0 ? m.avgRank.toFixed(1) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-center font-bold">
+                        {m.trend === "up" ? (
+                          <span className="text-ink" title="Improving">↑</span>
+                        ) : m.trend === "down" ? (
+                          <span className="text-tabloid" title="Declining">↓</span>
+                        ) : (
+                          <span className="text-ink/40">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
