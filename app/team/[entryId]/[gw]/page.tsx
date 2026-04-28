@@ -6,6 +6,72 @@ export const dynamic = "force-dynamic";
 
 const POSITION = { 1: "GK", 2: "DEF", 3: "MID", 4: "FWD" } as const;
 
+// 20-colour palette so every PL club gets a distinct slice.
+const PIE_PALETTE = [
+  "#c8102e", "#0a0a0a", "#fbbf24", "#7c3aed", "#0891b2",
+  "#16a34a", "#dc2626", "#2563eb", "#ea580c", "#65a30d",
+  "#be123c", "#0e7490", "#a16207", "#9333ea", "#15803d",
+  "#1d4ed8", "#b91c1c", "#854d0e", "#0369a1", "#581c87",
+];
+
+function ClubPie({ slices }: { slices: { label: string; count: number; color: string }[] }) {
+  const total = slices.reduce((s, x) => s + x.count, 0);
+  if (total === 0) return null;
+  const cx = 100, cy = 100, r = 90;
+  let startAngle = -Math.PI / 2;
+  const arcs = slices.map((s) => {
+    const angle = (s.count / total) * 2 * Math.PI;
+    const endAngle = startAngle + angle;
+    const x1 = cx + r * Math.cos(startAngle);
+    const y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy + r * Math.sin(endAngle);
+    const largeArc = angle > Math.PI ? 1 : 0;
+    const path = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+    const labelAngle = startAngle + angle / 2;
+    const labelX = cx + r * 0.65 * Math.cos(labelAngle);
+    const labelY = cy + r * 0.65 * Math.sin(labelAngle);
+    const result = { ...s, path, labelX, labelY };
+    startAngle = endAngle;
+    return result;
+  });
+  return (
+    <div className="flex items-start gap-4 flex-wrap">
+      <svg viewBox="0 0 200 200" className="w-48 h-48 shrink-0">
+        {arcs.map((a) => (
+          <g key={a.label}>
+            <path d={a.path} fill={a.color} stroke="#0a0a0a" strokeWidth="1.5" />
+            {a.count >= 2 && (
+              <text
+                x={a.labelX}
+                y={a.labelY + 4}
+                fontSize="13"
+                fontWeight="800"
+                textAnchor="middle"
+                fill="#fff"
+                stroke="#000"
+                strokeWidth="0.6"
+                paintOrder="stroke"
+              >
+                {a.label}
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+      <ul className="text-sm space-y-1">
+        {slices.map((s) => (
+          <li key={s.label} className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 border border-ink" style={{ background: s.color }} />
+            <strong className="font-bold">{s.label}</strong>
+            <span className="text-ink/60">× {s.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default async function TeamPage({
   params,
 }: {
@@ -104,6 +170,31 @@ export default async function TeamPage({
           </table>
         </div>
       )}
+
+      {picks && (() => {
+        const counts = new Map<number, number>();
+        for (const p of picks.picks) {
+          const el = elementsById.get(p.element);
+          if (!el) continue;
+          counts.set(el.team, (counts.get(el.team) ?? 0) + 1);
+        }
+        const slices = [...counts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([teamId, count], i) => ({
+            label: teamsById.get(teamId)?.short_name ?? `T${teamId}`,
+            count,
+            color: PIE_PALETTE[i % PIE_PALETTE.length],
+          }));
+        return (
+          <section className="card p-5">
+            <div className="kicker">Club bias</div>
+            <h2 className="headline text-2xl mt-2">Squad by club</h2>
+            <div className="mt-3">
+              <ClubPie slices={slices} />
+            </div>
+          </section>
+        );
+      })()}
 
       <div className="flex gap-2">
         {gw > 1 && (

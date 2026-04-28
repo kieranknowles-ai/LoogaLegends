@@ -20,6 +20,8 @@ export type GameweekResult = {
   below_avg_fine_p: number;
   event_transfers: number;
   event_transfers_cost: number;
+  bank: number;
+  squad_value: number;
 };
 
 export type FineKind = "gloat" | "missed_report";

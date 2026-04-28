@@ -99,6 +99,8 @@ export async function GET(request: NextRequest) {
         below_avg_fine_p: b.belowAvgFineP,
         event_transfers: evt.event_transfers ?? 0,
         event_transfers_cost: evt.event_transfers_cost ?? 0,
+        bank: evt.bank ?? 0,
+        squad_value: evt.value ?? 0,
       };
     });
 

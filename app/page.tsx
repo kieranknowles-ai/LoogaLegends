@@ -30,9 +30,12 @@ type Aggregate = {
   gotAway: number;
   gotCaught: number;
   gloatPoints: number;
+  // Bank — latest GW values, in 0.1m units
+  bank: number;
+  squadValue: number;
 };
 
-type View = "fines" | "points" | "gloating" | "momentum";
+type View = "fines" | "points" | "gloating" | "momentum" | "bank";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MOMENTUM_WINDOW = 10;
@@ -101,6 +104,8 @@ export default async function Page({
       ? "gloating"
       : viewParam === "momentum"
       ? "momentum"
+      : viewParam === "bank"
+      ? "bank"
       : "fines";
 
   const supabase = createAdminClient();
@@ -156,6 +161,8 @@ export default async function Page({
         gotAway: 0,
         gotCaught: 0,
         gloatPoints: 0,
+        bank: 0,
+        squadValue: 0,
       },
     ]),
   );
@@ -172,6 +179,8 @@ export default async function Page({
       a.latestGwPoints = r.points;
       a.latestGwHitsCost = r.event_transfers_cost ?? 0;
       a.latestGwWentNegative = r.points < 0;
+      a.bank = r.bank ?? 0;
+      a.squadValue = r.squad_value ?? 0;
     }
   }
   for (const f of fines) {
@@ -449,6 +458,14 @@ export default async function Page({
           >
             Momentum
           </Link>
+          <Link
+            href="/?view=bank"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "bank" ? "bg-ink text-paper" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            Bank
+          </Link>
         </div>
 
         {view === "points" && (
@@ -558,6 +575,56 @@ export default async function Page({
             </div>
           </>
         )}
+
+        {view === "bank" && (() => {
+          const fmtMillions = (tenths: number) => `£${(tenths / 10).toFixed(1)}m`;
+          const rankedByAssets = [...all].sort(
+            (a, b) => b.bank + b.squadValue - (a.bank + a.squadValue),
+          );
+          return (
+            <>
+              <h2 className="headline text-3xl mb-3">
+                <span className="kicker">Buying</span> THE LEAGUE
+              </h2>
+              <p className="text-sm italic mb-3">
+                Cash in the bank + current squad value at end of GW {latestGw}. Sorted by total assets.
+              </p>
+              <div className="card overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-ink text-paper uppercase text-xs">
+                    <tr>
+                      <th className="px-3 py-2 text-left">#</th>
+                      <th className="px-3 py-2 text-left">Manager</th>
+                      <th className="px-3 py-2 text-right">Bank</th>
+                      <th className="px-3 py-2 text-right">Squad value</th>
+                      <th className="px-3 py-2 text-right">Total assets</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankedByAssets.map((a, i) => (
+                      <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                        <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={`/team/${a.player.entry_id}`}
+                            className="underline decoration-tabloid decoration-2 underline-offset-2"
+                          >
+                            {a.player.display_name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMillions(a.bank)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMillions(a.squadValue)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">
+                          {fmtMillions(a.bank + a.squadValue)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          );
+        })()}
 
         {view === "momentum" && (
           <>

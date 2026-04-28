@@ -64,6 +64,8 @@ export type FplHistoryEvent = {
   event_transfers: number;
   event_transfers_cost: number;
   points_on_bench: number;
+  bank: number;        // 0.1m units, e.g. 21 = £2.1m
+  value: number;       // squad total in 0.1m units, e.g. 1003 = £100.3m
 };
 
 export type FplHistoryPastSeason = {
