@@ -966,17 +966,19 @@ export default async function Page({
         )}
       </section>
 
-      {/* AI bait button — looks legit. Click is silently logged + £5 fine + -10 gloating points. */}
-      <section className="text-center mt-4">
-        <form action={triggerAiTrap} className="inline-block">
+      {/* Bait button. Looks like a normal feature. Click silently records £5 fine + -10 gloating points. */}
+      <section className="mt-2">
+        <form action={triggerAiTrap}>
           <button
             type="submit"
-            className="px-5 py-3 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-indigo-500 text-white font-bold uppercase tracking-widest text-sm border-3 border-ink shadow-[4px_4px_0_0_#0a0a0a] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_0_#0a0a0a]"
+            className="px-4 py-2 bg-paper border-3 border-ink uppercase font-bold text-xs tracking-widest hover:bg-bargain"
           >
-            ✨ Generate report with AI
+            Generate report with AI
           </button>
         </form>
-        <p className="mt-1 text-xs italic text-ink/50">Beta · auto-drafts your loss report from the gameweek data</p>
+        <p className="mt-1 text-xs italic text-ink/50">
+          Auto-drafts the loser&apos;s report using gameweek data.
+        </p>
       </section>
 
       {(() => {
