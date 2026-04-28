@@ -9,6 +9,7 @@ export type Player = {
   password_hash: string | null;
   is_admin: boolean;
   joined_at: string;
+  bio: string | null;
 };
 
 export type GameweekResult = {

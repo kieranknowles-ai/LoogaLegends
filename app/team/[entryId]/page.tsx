@@ -4,7 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBootstrap, getEntryHistory } from "@/lib/fpl";
 import { formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
 import { SeasonChart, type Series } from "./_components/SeasonChart";
+import { getSession } from "@/lib/auth";
+import { updateBio } from "./actions";
 import type { GameweekResult, FineProposal } from "@/lib/db-types";
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MOMENTUM_WINDOW = 10;
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +29,19 @@ export default async function TeamSeasonPage({
   const view: View = viewRaw === "yoy" ? "yoy" : viewRaw === "ffp" ? "ffp" : "average";
 
   const supabase = createAdminClient();
-  const [{ data: player }, { data: gws }, { data: applied }] = await Promise.all([
+  const session = await getSession();
+  const [
+    { data: player },
+    { data: gws },
+    { data: applied },
+    { data: allPlayers },
+    { data: allGws },
+    { data: allApplied },
+    { data: allGloats },
+  ] = await Promise.all([
     supabase
       .from("players")
-      .select("entry_id, display_name, first_name, is_admin")
+      .select("entry_id, display_name, first_name, is_admin, bio")
       .eq("entry_id", entryId)
       .maybeSingle(),
     supabase
@@ -39,6 +53,10 @@ export default async function TeamSeasonPage({
       .from("applied_fines")
       .select("*")
       .eq("target_entry", entryId),
+    supabase.from("players").select("entry_id, display_name"),
+    supabase.from("gameweek_results").select("gw, entry_id, points, loser_fine_p, below_avg_fine_p"),
+    supabase.from("applied_fines").select("kind, target_entry, fine_p"),
+    supabase.from("fine_proposals").select("*").eq("kind", "gloat").eq("voided", false),
   ]);
 
   if (!player) notFound();
@@ -146,6 +164,85 @@ export default async function TeamSeasonPage({
       ffpData[ffpData.length - 1].cumMissed
     : 0;
 
+  // ---------- HEADLINES ----------
+  type Row = { entry_id: number };
+  const players = (allPlayers ?? []) as (Row & { display_name: string })[];
+  const allGwRows = (allGws ?? []) as Pick<GameweekResult, "gw" | "entry_id" | "points" | "loser_fine_p" | "below_avg_fine_p">[];
+  const allFineRows = (allApplied ?? []) as Pick<FineProposal, "kind" | "target_entry" | "fine_p">[];
+  const allGloatRows = (allGloats ?? []) as FineProposal[];
+
+  // League position by season points
+  const totalPointsByEntry = new Map<number, number>();
+  for (const r of allGwRows) {
+    totalPointsByEntry.set(r.entry_id, (totalPointsByEntry.get(r.entry_id) ?? 0) + r.points);
+  }
+  const pointsRanked = [...totalPointsByEntry.entries()].sort((a, b) => b[1] - a[1]);
+  const leaguePos = pointsRanked.findIndex(([id]) => id === entryId);
+  const myTotalPoints = totalPointsByEntry.get(entryId) ?? 0;
+
+  // Shame position by total owed
+  const owedByEntry = new Map<number, number>();
+  for (const r of allGwRows) {
+    owedByEntry.set(r.entry_id, (owedByEntry.get(r.entry_id) ?? 0) + r.loser_fine_p + r.below_avg_fine_p);
+  }
+  for (const f of allFineRows) {
+    owedByEntry.set(f.target_entry, (owedByEntry.get(f.target_entry) ?? 0) + f.fine_p);
+  }
+  const owedRanked = [...owedByEntry.entries()].sort((a, b) => b[1] - a[1]);
+  const shamePos = owedRanked.findIndex(([id]) => id === entryId);
+  const myTotalOwed = owedByEntry.get(entryId) ?? 0;
+
+  // Gloating points
+  const gloatPointsByEntry = new Map<number, number>();
+  const now = Date.now();
+  for (const g of allGloatRows) {
+    const proposedAt = new Date(g.proposed_at).getTime();
+    if (g.seconded_at) {
+      if (new Date(g.seconded_at).getTime() - proposedAt <= WEEK_MS) {
+        gloatPointsByEntry.set(g.proposed_by, (gloatPointsByEntry.get(g.proposed_by) ?? 0) + 3);
+        if (g.seconded_by != null) {
+          gloatPointsByEntry.set(g.seconded_by, (gloatPointsByEntry.get(g.seconded_by) ?? 0) + 1);
+        }
+        gloatPointsByEntry.set(g.target_entry, (gloatPointsByEntry.get(g.target_entry) ?? 0) - 3);
+      }
+    } else if (now - proposedAt >= WEEK_MS) {
+      gloatPointsByEntry.set(g.target_entry, (gloatPointsByEntry.get(g.target_entry) ?? 0) + 1);
+    }
+  }
+  const gloatRanked = players
+    .map((p) => ({ entry_id: p.entry_id, pts: gloatPointsByEntry.get(p.entry_id) ?? 0 }))
+    .sort((a, b) => b.pts - a.pts);
+  const gloatPos = gloatRanked.findIndex((g) => g.entry_id === entryId);
+  const myGloatPts = gloatPointsByEntry.get(entryId) ?? 0;
+
+  // Momentum — average intra-league position over last MOMENTUM_WINDOW played GWs
+  const playedGws = Array.from(new Set(allGwRows.map((r) => r.gw))).sort((a, b) => a - b);
+  const recentGws = playedGws.slice(-MOMENTUM_WINDOW);
+  const myRanks: number[] = [];
+  for (const gw of recentGws) {
+    const sorted = allGwRows.filter((r) => r.gw === gw).sort((a, b) => b.points - a.points);
+    const pos = sorted.findIndex((r) => r.entry_id === entryId);
+    if (pos >= 0) myRanks.push(pos + 1);
+  }
+  const myAvgPos = myRanks.length ? myRanks.reduce((s, r) => s + r, 0) / myRanks.length : 0;
+  let trend: "up" | "down" | "flat" = "flat";
+  if (myRanks.length >= 4) {
+    const half = Math.floor(myRanks.length / 2);
+    const earlyAvg = myRanks.slice(0, half).reduce((s, r) => s + r, 0) / half;
+    const lateAvg = myRanks.slice(half).reduce((s, r) => s + r, 0) / (myRanks.length - half);
+    if (lateAvg < earlyAvg - 0.3) trend = "up";
+    else if (lateAvg > earlyAvg + 0.3) trend = "down";
+  }
+  const ord = (n: number) => {
+    if (n < 0) return "—";
+    const v = n + 1;
+    const s = ["th", "st", "nd", "rd"];
+    const m = v % 100;
+    return v + (s[(m - 20) % 10] || s[m] || s[0]);
+  };
+
+  const canEditBio = session !== null && (session.entry_id === entryId || session.is_admin);
+
   return (
     <div className="space-y-6">
       <div>
@@ -159,6 +256,58 @@ export default async function TeamSeasonPage({
           </Link>
         </p>
       </div>
+
+      {/* RECENT HEADLINES */}
+      <section>
+        <div className="kicker mb-2">Recent headlines</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <HeadlineCard
+            label="League position"
+            value={leaguePos >= 0 ? ord(leaguePos) : "—"}
+            sub={`${myTotalPoints} pts`}
+          />
+          <HeadlineCard
+            label="Shame position"
+            value={shamePos >= 0 ? ord(shamePos) : "—"}
+            sub={formatGbp(myTotalOwed)}
+            tabloid
+          />
+          <HeadlineCard
+            label="Gloating"
+            value={gloatPos >= 0 ? ord(gloatPos) : "—"}
+            sub={`${myGloatPts >= 0 ? "+" : ""}${myGloatPts} pts`}
+          />
+          <HeadlineCard
+            label="Momentum"
+            value={myAvgPos > 0 ? `Avg ${myAvgPos.toFixed(1)}` : "—"}
+            sub={trend === "up" ? "↑ trending up" : trend === "down" ? "↓ trending down" : "— flat"}
+          />
+        </div>
+      </section>
+
+      {/* BIO */}
+      <section className="card p-5">
+        <div className="kicker">Bio</div>
+        <h2 className="headline text-2xl mt-2 mb-2">About the manager</h2>
+        {canEditBio ? (
+          <form action={updateBio} className="space-y-2">
+            <input type="hidden" name="entry_id" value={entryId} />
+            <textarea
+              name="bio"
+              defaultValue={player.bio ?? ""}
+              maxLength={600}
+              rows={3}
+              placeholder="Write your bio. Catchphrases, claims to fame, formation philosophy. Max 600 chars."
+              className="w-full border-3 border-ink p-2 bg-paper text-sm"
+            />
+            <button type="submit" className="btn-primary text-xs">Save bio</button>
+          </form>
+        ) : player.bio ? (
+          <p className="italic whitespace-pre-wrap">{player.bio}</p>
+        ) : (
+          <p className="italic text-ink/50">No bio yet. Manager hasn&apos;t written one.</p>
+        )}
+      </section>
 
       <nav className="flex flex-wrap gap-2">
         <ChartTab href={`/team/${entryId}?view=average`} active={view === "average"} label="Average" />
@@ -221,5 +370,25 @@ function ChartTab({ href, active, label }: { href: string; active: boolean; labe
     >
       {label}
     </Link>
+  );
+}
+
+function HeadlineCard({
+  label,
+  value,
+  sub,
+  tabloid,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tabloid?: boolean;
+}) {
+  return (
+    <div className="card p-3">
+      <div className="text-xs uppercase tracking-widest font-bold text-ink/60">{label}</div>
+      <div className={`headline text-3xl mt-1 ${tabloid ? "text-tabloid" : ""}`}>{value}</div>
+      <div className="text-xs mt-1 text-ink/70">{sub}</div>
+    </div>
   );
 }
