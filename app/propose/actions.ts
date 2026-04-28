@@ -77,6 +77,9 @@ export async function proposeEmoji(formData: FormData) {
   const emojiRaw = String(formData.get("emoji") ?? "").trim();
   const reporterUsedEmoji = emojiRaw && COMMON_EMOJIS.includes(emojiRaw);
   const emoji = reporterUsedEmoji ? emojiRaw : null;
+  const provokedByRaw = formData.get("provoked_by");
+  const provokedByNum = provokedByRaw !== null ? Number(provokedByRaw) : NaN;
+  const provokedBy = Number.isFinite(provokedByNum) && provokedByNum > 0 ? provokedByNum : null;
 
   if (!Number.isFinite(targetEntry)) throw new Error("Pick the perpetrator.");
   if (!offenceDate) throw new Error("Pick a date.");
@@ -84,23 +87,26 @@ export async function proposeEmoji(formData: FormData) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
-  // Always fine the perpetrator.
+  // Perpetrator fine is £0.50 if provoked, £1 if unprompted.
+  const perpFineP = provokedBy ? EMOJI_FINE_P : EMOJI_FINE_P * 2;
+
   const rows = [
     {
       kind: "emoji",
       target_entry: targetEntry,
       gw: null,
-      fine_p: EMOJI_FINE_P,
-      note,
+      fine_p: perpFineP,
+      note: provokedBy ? note : (note ? `${note} (unprompted — double fine)` : "Unprompted — double fine"),
       proposed_by: session.entry_id,
       seconded_by: session.entry_id,
       seconded_at: now,
       gloat_date: offenceDate,
       emoji,
+      provoked_by: provokedBy,
     },
   ];
 
-  // The trap: if the reporter picked an emoji, fine the reporter too.
+  // The trap: if the reporter picked an emoji, fine the reporter too at the standard rate.
   if (reporterUsedEmoji) {
     rows.push({
       kind: "emoji",
@@ -113,6 +119,7 @@ export async function proposeEmoji(formData: FormData) {
       seconded_at: now,
       gloat_date: offenceDate,
       emoji: emojiRaw,
+      provoked_by: null,
     });
   }
 

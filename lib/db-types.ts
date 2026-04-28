@@ -57,6 +57,7 @@ export type FineProposal = {
   gloat_date: string | null;
   gloat_reason: GloatReason | null;
   emoji: string | null;
+  provoked_by: number | null;
 };
 
 export const EMOJI_FINE_P = 50; // 50p per emoji used.

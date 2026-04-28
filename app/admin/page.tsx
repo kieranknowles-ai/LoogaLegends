@@ -194,6 +194,7 @@ export default async function AdminPage({
                 <th className="px-2 py-2 text-right">£</th>
                 <th className="px-2 py-2 text-left">Proposed by</th>
                 <th className="px-2 py-2 text-left">Seconded by</th>
+                <th className="px-2 py-2 text-left">Provoked by</th>
                 <th className="px-2 py-2 text-left">State</th>
                 <th className="px-2 py-2"></th>
               </tr>
@@ -216,6 +217,11 @@ export default async function AdminPage({
                     ) : "—"}
                   </td>
                   <td className="px-2 py-2">
+                    {p.provoked_by ? (
+                      <Link href={`/team/${p.provoked_by}`} className="underline">{nameOf(p.provoked_by)}</Link>
+                    ) : "—"}
+                  </td>
+                  <td className="px-2 py-2">
                     {p.voided ? "voided" : p.seconded_at ? "applied" : "pending"}
                   </td>
                   <td className="px-2 py-2">
@@ -235,7 +241,7 @@ export default async function AdminPage({
                 </tr>
               ))}
               {allProposals.length === 0 && (
-                <tr><td colSpan={8} className="px-2 py-6 text-center italic text-ink/60">No proposals yet.</td></tr>
+                <tr><td colSpan={9} className="px-2 py-6 text-center italic text-ink/60">No proposals yet.</td></tr>
               )}
             </tbody>
           </table>

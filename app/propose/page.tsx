@@ -126,6 +126,21 @@ export default async function ProposePage() {
           </div>
 
           <div>
+            <label className="block text-xs uppercase font-bold tracking-widest mb-1">
+              Who provoked it? <span className="font-normal italic">(optional &mdash; assist credit)</span>
+            </label>
+            <select name="provoked_by" className="w-full border-3 border-ink p-2 bg-paper">
+              <option value="">No one — perpetrator acted unprompted (charged double)</option>
+              {all.map((p) => (
+                <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>
+              ))}
+            </select>
+            <p className="text-xs italic mt-1 text-ink/60">
+              Unprompted emoji use is double the fine. If someone provoked it, name them and the perpetrator pays the standard £0.50.
+            </p>
+          </div>
+
+          <div>
             <label className="block text-xs uppercase font-bold tracking-widest mb-2">
               The offending emoji <span className="font-normal italic">(optional)</span>
             </label>
