@@ -521,7 +521,42 @@ export default async function Page({
                 </div>
               );
             })()}
-            <div className="card overflow-x-auto">
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {rankedByPoints.map((a, i) => {
+                const isEasyThird = a.player.entry_id === easyThirdEntry;
+                return (
+                  <div
+                    key={a.player.entry_id}
+                    className={`card p-3 ${isEasyThird ? "bg-bargain" : ""}`}
+                  >
+                    <div className="flex justify-between items-baseline gap-2">
+                      <div>
+                        <span className="font-display text-xl mr-2">{isEasyThird ? "🏆" : i + 1}</span>
+                        <Link
+                          href={`/team/${a.player.entry_id}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                      </div>
+                      <span className="font-display text-2xl tabular-nums">{a.totalPoints}</span>
+                    </div>
+                    {isEasyThird && (
+                      <div className="mt-1"><span className="shock text-[11px]">★ EASY THIRD ★ Picks the venue</span></div>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 text-xs mt-2 text-ink/70">
+                      <div>GW {latestGw}: <strong>{a.latestGwPoints ?? "—"}</strong>{a.latestGwHitsCost > 0 && <span className="text-tabloid"> ({-a.latestGwHitsCost})</span>}</div>
+                      <div>Hits: <strong className="text-tabloid">{a.totalHitsCost > 0 ? `-${a.totalHitsCost}` : "0"}</strong></div>
+                      <div>Owed: <strong>{formatGbp(a.totalP)}</strong></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* DESKTOP: table */}
+            <div className="card overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead className="bg-ink text-paper uppercase text-xs">
                   <tr>
@@ -597,7 +632,37 @@ export default async function Page({
             <h2 className="headline text-3xl mb-3">
               <span className="shock">SHAME</span> LEADERBOARD
             </h2>
-            <div className="card overflow-x-auto">
+
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {rankedByFines.map((a, i) => (
+                <div key={a.player.entry_id} className="card p-3">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <span className="font-display text-xl mr-2">{i + 1}</span>
+                      <Link
+                        href={`/team/${a.player.entry_id}`}
+                        className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                      >
+                        {a.player.display_name}
+                      </Link>
+                    </div>
+                    <span className="font-display text-2xl tabular-nums text-tabloid">{formatGbp(a.totalP)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mt-2 text-ink/70">
+                    <div>Loser: <strong>{formatGbp(a.loserP)}</strong></div>
+                    <div>Below avg: <strong>{formatGbp(a.belowAvgP)}</strong></div>
+                    <div>Gloats: <strong>{formatGbp(a.gloatsP)}</strong></div>
+                    <div>Emojis: <strong>{formatGbp(a.emojiP)}</strong></div>
+                    <div>Missed: <strong>{formatGbp(a.missedP)}</strong></div>
+                    <div>AI: <strong>{formatGbp(a.aiP)}</strong></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DESKTOP: table */}
+            <div className="card overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead className="bg-ink text-paper uppercase text-xs">
                   <tr>
@@ -654,7 +719,33 @@ export default async function Page({
               <p className="text-sm italic mb-3">
                 Cash in the bank + current squad value at end of GW {latestGw}. Sorted by total assets.
               </p>
-              <div className="card overflow-x-auto">
+
+              {/* MOBILE: card stack */}
+              <div className="md:hidden space-y-2">
+                {rankedByAssets.map((a, i) => (
+                  <div key={a.player.entry_id} className="card p-3">
+                    <div className="flex justify-between items-baseline gap-2">
+                      <div>
+                        <span className="font-display text-xl mr-2">{i + 1}</span>
+                        <Link
+                          href={`/team/${a.player.entry_id}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                      </div>
+                      <span className="font-display text-2xl tabular-nums">{fmtMillions(a.bank + a.squadValue)}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mt-2 text-ink/70">
+                      <div>Bank: <strong>{fmtMillions(a.bank)}</strong></div>
+                      <div>Squad: <strong>{fmtMillions(a.squadValue)}</strong></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* DESKTOP: table */}
+              <div className="card overflow-x-auto hidden md:block">
                 <table className="w-full text-sm">
                   <thead className="bg-ink text-paper uppercase text-xs">
                     <tr>
@@ -701,7 +792,37 @@ export default async function Page({
               Each line shows weekly intra-league position (1 at top, {players.length} at bottom). Sorted by best average position.
               Trend = average of latest half vs first half.
             </p>
-            <div className="card overflow-x-auto">
+
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {rankedByMomentum.map((m, i) => (
+                <div key={m.player.entry_id} className="card p-3">
+                  <div className="flex justify-between items-center gap-2">
+                    <div>
+                      <span className="font-display text-xl mr-2">{i + 1}</span>
+                      <Link
+                        href={`/team/${m.player.entry_id}`}
+                        className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                      >
+                        {m.player.display_name}
+                      </Link>
+                    </div>
+                    <span className="text-2xl">
+                      {m.trend === "up" ? "↑" : m.trend === "down" ? <span className="text-tabloid">↓</span> : <span className="text-ink/40">—</span>}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 mt-2">
+                    <Sparkline values={m.ranks} players={players.length} />
+                    <div className="text-xs text-ink/70">
+                      Avg pos: <strong className="font-display text-base">{m.avgRank > 0 ? m.avgRank.toFixed(1) : "—"}</strong>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DESKTOP: table */}
+            <div className="card overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead className="bg-ink text-paper uppercase text-xs">
                   <tr>
@@ -766,7 +887,37 @@ export default async function Page({
                 Pending (under-7-day) proposals don&apos;t score yet. Voided proposals are excluded entirely.
               </p>
             </div>
-            <div className="card overflow-x-auto">
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {rankedByGloating.map((a, i) => (
+                <div key={a.player.entry_id} className="card p-3">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <span className="font-display text-xl mr-2">{i + 1}</span>
+                      <Link
+                        href={`/team/${a.player.entry_id}`}
+                        className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                      >
+                        {a.player.display_name}
+                      </Link>
+                    </div>
+                    <span className="font-display text-2xl tabular-nums">{a.gloatPoints > 0 && "+"}{a.gloatPoints}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-xs mt-2 text-ink/70">
+                    <div>Proposed: <strong>{a.proposalsMade}</strong></div>
+                    <div>Landed: <strong>{a.proposalsLanded}</strong></div>
+                    <div>Seconded: <strong>{a.secondingsMade}</strong></div>
+                    <div>Against: <strong>{a.gloatsAgainst}</strong></div>
+                    <div>Got away: <strong>{a.gotAway}</strong></div>
+                    <div className="text-tabloid">Caught: <strong>{a.gotCaught}</strong></div>
+                    <div className="col-span-3 text-tabloid">Fines: <strong>{formatGbp(a.gotCaught * GLOAT_FINE_P)}</strong></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DESKTOP: table */}
+            <div className="card overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead className="bg-ink text-paper uppercase text-xs">
                   <tr>

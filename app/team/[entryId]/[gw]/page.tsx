@@ -125,8 +125,46 @@ export default async function TeamPage({
       )}
 
       {picks && (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
+        <>
+          {/* MOBILE: card stack */}
+          <div className="md:hidden space-y-2">
+            {picks.picks.map((p) => {
+              const el = elementsById.get(p.element);
+              const team = el ? teamsById.get(el.team) : null;
+              const onBench = p.position > 11;
+              const rawPts = livePointsById.get(p.element);
+              const counted = rawPts != null ? rawPts * p.multiplier : null;
+              return (
+                <div key={p.element} className={`card p-3 ${onBench ? "opacity-60" : ""}`}>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <span className="font-display text-base mr-2">
+                        {p.position}{onBench && " (B)"}
+                      </span>
+                      <span className="font-bold">
+                        {el ? `${el.first_name} ${el.second_name}` : `#${p.element}`}
+                      </span>
+                      {p.is_captain && <span className="ml-2 text-tabloid font-bold">★ C</span>}
+                      {p.is_vice_captain && <span className="ml-2 text-ink/60">VC</span>}
+                    </div>
+                    <span className="font-display text-2xl tabular-nums">
+                      {counted == null ? "—" : onBench ? "0" : counted}
+                    </span>
+                  </div>
+                  <div className="text-xs text-ink/70 mt-1 flex flex-wrap gap-x-3">
+                    <span>{el ? POSITION[el.element_type as 1|2|3|4] : "—"}</span>
+                    <span>{team?.short_name ?? "—"}</span>
+                    <span>Pts: <strong>{rawPts ?? "—"}</strong></span>
+                    {p.multiplier > 1 && <span>×{p.multiplier}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* DESKTOP: table */}
+          <div className="card overflow-x-auto hidden md:block">
+            <table className="w-full text-sm">
             <thead className="bg-ink text-paper uppercase text-xs">
               <tr>
                 <th className="px-2 py-2 text-left">Slot</th>
@@ -168,7 +206,8 @@ export default async function TeamPage({
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {picks && (() => {

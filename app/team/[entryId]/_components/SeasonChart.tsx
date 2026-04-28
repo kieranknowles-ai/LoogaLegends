@@ -78,7 +78,7 @@ export function SeasonChart({
               stroke="rgba(0,0,0,0.12)"
               strokeDasharray="3 4"
             />
-            <text x={PAD.left - 8} y={py + 4} fontSize="11" textAnchor="end" fill="#0a0a0a">
+            <text x={PAD.left - 8} y={py + 4} fontSize="14" textAnchor="end" fill="#0a0a0a">
               {yFormatter(tickVal)}
             </text>
           </g>
@@ -90,7 +90,7 @@ export function SeasonChart({
         <text
           x={14}
           y={PAD.top + ch / 2}
-          fontSize="10"
+          fontSize="13"
           fill="#0a0a0a"
           textAnchor="middle"
           transform={`rotate(-90, 14, ${PAD.top + ch / 2})`}
@@ -125,7 +125,7 @@ export function SeasonChart({
             key={i}
             x={x(i)}
             y={H - PAD.bottom + 16}
-            fontSize="10"
+            fontSize="13"
             textAnchor="middle"
             fill="#0a0a0a"
           >
@@ -181,7 +181,7 @@ export function SeasonChart({
               strokeWidth="3"
               strokeDasharray={s.dashed ? "4 3" : undefined}
             />
-            <text x={26} y={10} fontSize="11" fontWeight="700" fill="#0a0a0a">
+            <text x={26} y={10} fontSize="14" fontWeight="700" fill="#0a0a0a">
               {s.label}
             </text>
           </g>
