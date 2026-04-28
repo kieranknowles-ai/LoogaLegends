@@ -140,7 +140,7 @@ export default async function ProposePage() {
             </p>
           </div>
 
-          <div>
+          <div className="group">
             <label className="block text-xs uppercase font-bold tracking-widest mb-2">
               The offending emoji <span className="font-normal italic">(optional)</span>
             </label>
@@ -154,6 +154,9 @@ export default async function ProposePage() {
                   {e}
                 </label>
               ))}
+            </div>
+            <div className="hidden group-has-[input:checked]:block mt-2 p-2 bg-tabloid text-paper text-sm text-center font-bold border-3 border-ink">
+              There&apos;s no need for the emoji! Submitting with one selected will fine YOU 50p too.
             </div>
           </div>
 

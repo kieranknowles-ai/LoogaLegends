@@ -117,7 +117,7 @@ export default async function Page({
   const supabase = createAdminClient();
   const session = await getSession();
 
-  const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }] = await Promise.all([
+  const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }, { data: emojiLog }] = await Promise.all([
     supabase.from("players").select("entry_id, display_name, ai_caught_count").order("display_name"),
     supabase.from("gameweek_results").select("*"),
     supabase.from("applied_fines").select("*"),
@@ -133,6 +133,13 @@ export default async function Page({
       .eq("voided", false)
       .is("seconded_at", null)
       .order("proposed_at", { ascending: false }),
+    supabase
+      .from("fine_proposals")
+      .select("*")
+      .eq("kind", "emoji")
+      .eq("voided", false)
+      .order("proposed_at", { ascending: false })
+      .limit(50),
   ]);
 
   if (!players || players.length === 0) {
@@ -380,91 +387,6 @@ export default async function Page({
         </section>
       )}
 
-      {/* ACTIVE PROPOSALS */}
-      {(() => {
-        const pendingProposals = (pending ?? []) as FineProposal[];
-        return (
-          <section>
-            <div className="kicker">Awaiting verdict</div>
-            <h2 className="headline text-3xl mt-2 mb-3">
-              ACTIVE <span className="text-tabloid">GLOATS</span>
-            </h2>
-            {pendingProposals.length === 0 && (
-              <div className="card p-5 text-center italic text-ink/60">
-                No active gloats. The league is suspiciously well-behaved.{" "}
-                <Link href="/propose" className="underline font-bold not-italic text-ink">
-                  Spotted one?
-                </Link>
-              </div>
-            )}
-            <div className="grid gap-3">
-              {pendingProposals.map((p) => {
-                const target = byEntry.get(p.target_entry);
-                const proposer = byEntry.get(p.proposed_by);
-                const ageMs = Date.now() - new Date(p.proposed_at).getTime();
-                const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
-                const stale = ageMs >= WEEK_MS;
-                const canVote =
-                  session !== null &&
-                  session.entry_id !== p.target_entry &&
-                  session.entry_id !== p.proposed_by &&
-                  !stale;
-                let reason: string | null = null;
-                if (!session) reason = "Login to second";
-                else if (session.entry_id === p.target_entry) reason = "You're the target";
-                else if (session.entry_id === p.proposed_by) reason = "You proposed it";
-                else if (stale) reason = "Stale (>7 days) — got away with it";
-                return (
-                  <div key={p.id} className="card p-4 flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                      <div className="text-xs uppercase tracking-widest text-ink/60">
-                        {p.gloat_reason ? GLOAT_REASON_LABELS[p.gloat_reason] : "Gloat"}
-                        {p.gloat_date && ` · ${p.gloat_date}`}
-                        {" · proposed "}
-                        {ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`}
-                        {" by "}
-                        {proposer ? (
-                          <Link href={`/team/${proposer.player.entry_id}`} className="underline">
-                            {proposer.player.display_name}
-                          </Link>
-                        ) : (
-                          `#${p.proposed_by}`
-                        )}
-                      </div>
-                      <div className="headline text-2xl mt-1">
-                        {target ? (
-                          <Link href={`/team/${target.player.entry_id}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
-                            {target.player.display_name}
-                          </Link>
-                        ) : (
-                          `#${p.target_entry}`
-                        )}
-                        <span className="text-tabloid"> — {formatGbp(p.fine_p)}</span>
-                      </div>
-                      {p.note && <div className="mt-1 text-sm italic">&ldquo;{p.note}&rdquo;</div>}
-                      {stale && (
-                        <div className="mt-1 text-xs uppercase tracking-widest text-ink/50">
-                          ⚠ proposal expired without a seconder
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      {canVote ? (
-                        <form action={secondProposal}>
-                          <input type="hidden" name="id" value={p.id} />
-                          <button type="submit" className="btn-primary">Second it</button>
-                        </form>
-                      ) : (
-                        <span className="text-xs uppercase tracking-widest text-ink/50">{reason}</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })()}
 
       {/* TABS */}
       <section>
@@ -1041,6 +963,171 @@ export default async function Page({
           ▶ Report it
         </Link>
       </section>
+      {/* ACTIVE PROPOSALS */}
+      {(() => {
+        const pendingProposals = (pending ?? []) as FineProposal[];
+        return (
+          <section>
+            <div className="kicker">Awaiting verdict</div>
+            <h2 className="headline text-3xl mt-2 mb-3">
+              ACTIVE <span className="text-tabloid">GLOATS</span>
+            </h2>
+            {pendingProposals.length === 0 && (
+              <div className="card p-5 text-center italic text-ink/60">
+                No active gloats. The league is suspiciously well-behaved.{" "}
+                <Link href="/propose" className="underline font-bold not-italic text-ink">
+                  Spotted one?
+                </Link>
+              </div>
+            )}
+            <div className="grid gap-3">
+              {pendingProposals.map((p) => {
+                const target = byEntry.get(p.target_entry);
+                const proposer = byEntry.get(p.proposed_by);
+                const ageMs = Date.now() - new Date(p.proposed_at).getTime();
+                const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+                const stale = ageMs >= WEEK_MS;
+                const canVote =
+                  session !== null &&
+                  session.entry_id !== p.target_entry &&
+                  session.entry_id !== p.proposed_by &&
+                  !stale;
+                let reason: string | null = null;
+                if (!session) reason = "Login to second";
+                else if (session.entry_id === p.target_entry) reason = "You're the target";
+                else if (session.entry_id === p.proposed_by) reason = "You proposed it";
+                else if (stale) reason = "Stale (>7 days) — got away with it";
+                return (
+                  <div key={p.id} className="card p-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <div className="text-xs uppercase tracking-widest text-ink/60">
+                        {p.gloat_reason ? GLOAT_REASON_LABELS[p.gloat_reason] : "Gloat"}
+                        {p.gloat_date && ` · ${p.gloat_date}`}
+                        {" · proposed "}
+                        {ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : `${ageDays} days ago`}
+                        {" by "}
+                        {proposer ? (
+                          <Link href={`/team/${proposer.player.entry_id}`} className="underline">
+                            {proposer.player.display_name}
+                          </Link>
+                        ) : (
+                          `#${p.proposed_by}`
+                        )}
+                      </div>
+                      <div className="headline text-2xl mt-1">
+                        {target ? (
+                          <Link href={`/team/${target.player.entry_id}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
+                            {target.player.display_name}
+                          </Link>
+                        ) : (
+                          `#${p.target_entry}`
+                        )}
+                        <span className="text-tabloid"> — {formatGbp(p.fine_p)}</span>
+                      </div>
+                      {p.note && <div className="mt-1 text-sm italic">&ldquo;{p.note}&rdquo;</div>}
+                      {stale && (
+                        <div className="mt-1 text-xs uppercase tracking-widest text-ink/50">
+                          ⚠ proposal expired without a seconder
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      {canVote ? (
+                        <form action={secondProposal}>
+                          <input type="hidden" name="id" value={p.id} />
+                          <button type="submit" className="btn-primary">Second it</button>
+                        </form>
+                      ) : (
+                        <span className="text-xs uppercase tracking-widest text-ink/50">{reason}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* EMOJI CRIMES LOG */}
+      {(() => {
+        const log = (emojiLog ?? []) as FineProposal[];
+        if (log.length === 0) return null;
+        return (
+          <section>
+            <div className="kicker">Police blotter</div>
+            <h2 className="headline text-3xl mt-2 mb-3">EMOJI CRIMES LOG</h2>
+            <div className="card overflow-x-auto hidden md:block">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Date</th>
+                    <th className="px-3 py-2 text-left">Perpetrator</th>
+                    <th className="px-3 py-2 text-left">Provoked by</th>
+                    <th className="px-3 py-2 text-left">Emoji</th>
+                    <th className="px-3 py-2 text-right">Fine</th>
+                    <th className="px-3 py-2 text-left">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {log.map((p) => (
+                    <tr key={p.id} className="border-t border-ink/20">
+                      <td className="px-3 py-2 whitespace-nowrap">{p.gloat_date ?? new Date(p.proposed_at).toLocaleDateString("en-GB")}</td>
+                      <td className="px-3 py-2">
+                        <Link href={`/team/${p.target_entry}`} className="underline decoration-tabloid decoration-2">
+                          {byEntry.get(p.target_entry)?.player.display_name ?? `#${p.target_entry}`}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2">
+                        {p.provoked_by ? (
+                          <Link href={`/team/${p.provoked_by}`} className="underline">
+                            {byEntry.get(p.provoked_by)?.player.display_name ?? `#${p.provoked_by}`}
+                          </Link>
+                        ) : (
+                          <span className="text-ink/50 italic">unprompted</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-2xl">{p.emoji ?? <span className="text-ink/40 text-xs italic">—</span>}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-bold text-tabloid">{formatGbp(p.fine_p)}</td>
+                      <td className="px-3 py-2 text-xs italic text-ink/70">{p.note ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {log.map((p) => (
+                <div key={p.id} className="card p-3">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <Link href={`/team/${p.target_entry}`} className="font-bold underline decoration-tabloid decoration-2">
+                        {byEntry.get(p.target_entry)?.player.display_name ?? `#${p.target_entry}`}
+                      </Link>
+                      {p.emoji && <span className="ml-2 text-2xl">{p.emoji}</span>}
+                    </div>
+                    <span className="font-bold tabular-nums text-tabloid">{formatGbp(p.fine_p)}</span>
+                  </div>
+                  <div className="text-xs text-ink/70 mt-1 flex flex-wrap gap-x-3">
+                    <span>{p.gloat_date ?? new Date(p.proposed_at).toLocaleDateString("en-GB")}</span>
+                    <span>
+                      Provoker:{" "}
+                      {p.provoked_by ? (
+                        <Link href={`/team/${p.provoked_by}`} className="underline">
+                          {byEntry.get(p.provoked_by)?.player.display_name ?? `#${p.provoked_by}`}
+                        </Link>
+                      ) : (
+                        <span className="italic">unprompted</span>
+                      )}
+                    </span>
+                  </div>
+                  {p.note && <div className="text-xs italic text-ink/70 mt-1">{p.note}</div>}
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 }
