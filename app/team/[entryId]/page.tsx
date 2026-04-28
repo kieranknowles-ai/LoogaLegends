@@ -88,9 +88,28 @@ export default async function TeamSeasonPage({
 
   // -------- FINANCIAL FAIR PLAY VIEW --------
   // Cumulative pence-owed by source, by GW.
+  // Gloats: bucket by gloat_date → fall back to proposed_at → look up the GW whose
+  // deadline_time was the most recent on or before that date.
+  const gwForDate = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const target = new Date(iso).getTime();
+    if (Number.isNaN(target)) return null;
+    let best: number | null = null;
+    for (const e of bootstrap.events) {
+      if (new Date(e.deadline_time).getTime() <= target) best = e.id;
+    }
+    return best;
+  };
+
   const finesByGw = new Map<number, { gloat: number; missed: number }>();
   for (const f of fines) {
-    const gw = f.gw ?? 1;
+    let gw: number | null;
+    if (f.kind === "gloat") {
+      gw = gwForDate(f.gloat_date) ?? gwForDate(f.proposed_at) ?? 1;
+    } else {
+      gw = f.gw;
+    }
+    if (gw == null) continue;
     const cur = finesByGw.get(gw) ?? { gloat: 0, missed: 0 };
     if (f.kind === "gloat") cur.gloat += f.fine_p;
     else cur.missed += f.fine_p;
