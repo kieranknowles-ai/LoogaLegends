@@ -57,6 +57,51 @@ type MomentumRow = {
   trend: "up" | "down" | "flat";
 };
 
+/** Sparkline for "bigger = worse" series like bench points wasted. Top of chart = max in the league. */
+function BenchSparkline({ values, leagueMax }: { values: (number | null)[]; leagueMax: number }) {
+  const W = 100;
+  const H = 28;
+  const P = 3;
+  const n = values.length;
+  const yMax = Math.max(leagueMax, 1);
+  const x = (i: number) => P + (i * (W - 2 * P)) / Math.max(n - 1, 1);
+  const y = (v: number) => P + (H - 2 * P) * (1 - v / yMax);
+
+  const segments: string[] = [];
+  let current: string[] = [];
+  values.forEach((v, i) => {
+    if (v == null) {
+      if (current.length) segments.push(current.join(" "));
+      current = [];
+    } else {
+      current.push(`${current.length === 0 ? "M" : "L"} ${x(i)} ${y(v)}`);
+    }
+  });
+  if (current.length) segments.push(current.join(" "));
+
+  const lastIdx = (() => {
+    for (let i = values.length - 1; i >= 0; i--) if (values[i] != null) return i;
+    return -1;
+  })();
+  const lastVal = lastIdx >= 0 ? values[lastIdx] : null;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-24 h-7" role="img">
+      <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke="rgba(0,0,0,0.1)" strokeWidth="1" />
+      <line x1={P} y1={P} x2={W - P} y2={P} stroke="rgba(0,0,0,0.1)" strokeWidth="1" />
+      <path d={segments.join(" ")} fill="none" stroke="#0a0a0a" strokeWidth="1.5" strokeLinejoin="round" />
+      {values.map((v, i) =>
+        v == null ? null : (
+          <circle key={i} cx={x(i)} cy={y(v)} r="1.5" fill="#0a0a0a" />
+        ),
+      )}
+      {lastVal != null && (
+        <circle cx={x(lastIdx)} cy={y(lastVal)} r="3" fill="#c8102e" />
+      )}
+    </svg>
+  );
+}
+
 function Sparkline({ values, players }: { values: (number | null)[]; players: number }) {
   const W = 100;
   const H = 28;
@@ -271,6 +316,21 @@ export default async function Page({
   const rankedByPoints = [...all].sort((a, b) => b.totalPoints - a.totalPoints);
   const rankedByGloating = [...all].sort((a, b) => b.gloatPoints - a.gloatPoints);
   const rankedByBench = [...all].sort((a, b) => b.benchTotal - a.benchTotal);
+
+  // Per-player weekly bench series, aligned to playedGwsSorted, for the bench-tab sparklines.
+  const playedGwsSorted = Array.from(new Set(gwResults.map((r) => r.gw))).sort((a, b) => a - b);
+  const benchByEntryByGw = new Map<number, Map<number, number>>();
+  for (const r of gwResults) {
+    let m = benchByEntryByGw.get(r.entry_id);
+    if (!m) {
+      m = new Map();
+      benchByEntryByGw.set(r.entry_id, m);
+    }
+    m.set(r.gw, r.points_on_bench ?? 0);
+  }
+  const benchLeagueMax = playedGwsSorted.length
+    ? Math.max(...gwResults.map((r) => r.points_on_bench ?? 0), 1)
+    : 1;
 
   // Momentum: intra-league position per GW for the last N GWs.
   const playedGws = Array.from(new Set(gwResults.map((r) => r.gw))).sort((a, b) => a - b);
@@ -750,26 +810,32 @@ export default async function Page({
 
             {/* MOBILE: card stack */}
             <div className="md:hidden space-y-2">
-              {rankedByBench.map((a, i) => (
-                <div key={a.player.entry_id} className="card p-3">
-                  <div className="flex justify-between items-baseline gap-2">
-                    <div>
-                      <span className="font-display text-xl mr-2">{i + 1}</span>
-                      <Link
-                        href={`/team/${a.player.entry_id}`}
-                        className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
-                      >
-                        {a.player.display_name}
-                      </Link>
+              {rankedByBench.map((a, i) => {
+                const series = playedGwsSorted.map((gw) => benchByEntryByGw.get(a.player.entry_id)?.get(gw) ?? null);
+                return (
+                  <div key={a.player.entry_id} className="card p-3">
+                    <div className="flex justify-between items-baseline gap-2">
+                      <div>
+                        <span className="font-display text-xl mr-2">{i + 1}</span>
+                        <Link
+                          href={`/team/${a.player.entry_id}?view=bench`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                      </div>
+                      <span className="font-display text-2xl tabular-nums text-tabloid">{a.benchTotal}</span>
                     </div>
-                    <span className="font-display text-2xl tabular-nums text-tabloid">{a.benchTotal}</span>
+                    <div className="flex items-center justify-between gap-3 mt-2">
+                      <BenchSparkline values={series} leagueMax={benchLeagueMax} />
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-ink/70">
+                        <div>GW {latestGw}: <strong>{a.benchLatest}</strong></div>
+                        <div>Howlers: <strong>{a.benchWeeksOver10}</strong></div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-xs mt-2 text-ink/70">
-                    <div>GW {latestGw}: <strong>{a.benchLatest}</strong></div>
-                    <div>Weeks ≥10: <strong>{a.benchWeeksOver10}</strong></div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* DESKTOP: table */}
@@ -779,6 +845,9 @@ export default async function Page({
                   <tr>
                     <th className="px-3 py-2 text-left">#</th>
                     <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-left" title={`Weekly bench points GW${playedGwsSorted[0] ?? "—"}–GW${playedGwsSorted[playedGwsSorted.length - 1] ?? "—"}`}>
+                      Week by week
+                    </th>
                     <th className="px-3 py-2 text-right" title="Points scored on bench in the latest GW">
                       GW {latestGw}
                     </th>
@@ -789,22 +858,28 @@ export default async function Page({
                   </tr>
                 </thead>
                 <tbody>
-                  {rankedByBench.map((a, i) => (
-                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
-                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
-                      <td className="px-3 py-2">
-                        <Link
-                          href={`/team/${a.player.entry_id}`}
-                          className="underline decoration-tabloid decoration-2 underline-offset-2"
-                        >
-                          {a.player.display_name}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.benchLatest}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.benchWeeksOver10}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-bold text-tabloid">{a.benchTotal}</td>
-                    </tr>
-                  ))}
+                  {rankedByBench.map((a, i) => {
+                    const series = playedGwsSorted.map((gw) => benchByEntryByGw.get(a.player.entry_id)?.get(gw) ?? null);
+                    return (
+                      <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                        <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={`/team/${a.player.entry_id}?view=bench`}
+                            className="underline decoration-tabloid decoration-2 underline-offset-2"
+                          >
+                            {a.player.display_name}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2">
+                          <BenchSparkline values={series} leagueMax={benchLeagueMax} />
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{a.benchLatest}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{a.benchWeeksOver10}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold text-tabloid">{a.benchTotal}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

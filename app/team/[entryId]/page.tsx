@@ -13,7 +13,7 @@ const MOMENTUM_WINDOW = 10;
 
 export const dynamic = "force-dynamic";
 
-type View = "average" | "yoy" | "ffp";
+type View = "average" | "yoy" | "ffp" | "bench";
 
 export default async function TeamSeasonPage({
   params,
@@ -26,7 +26,11 @@ export default async function TeamSeasonPage({
   const entryId = Number(entryIdStr);
   if (!Number.isFinite(entryId)) notFound();
   const { view: viewRaw } = await searchParams;
-  const view: View = viewRaw === "yoy" ? "yoy" : viewRaw === "ffp" ? "ffp" : "average";
+  const view: View =
+    viewRaw === "yoy" ? "yoy"
+    : viewRaw === "ffp" ? "ffp"
+    : viewRaw === "bench" ? "bench"
+    : "average";
 
   const supabase = createAdminClient();
   const session = await getSession();
@@ -54,7 +58,7 @@ export default async function TeamSeasonPage({
       .select("*")
       .eq("target_entry", entryId),
     supabase.from("players").select("entry_id, display_name"),
-    supabase.from("gameweek_results").select("gw, entry_id, points, loser_fine_p, below_avg_fine_p"),
+    supabase.from("gameweek_results").select("gw, entry_id, points, loser_fine_p, below_avg_fine_p, points_on_bench"),
     supabase.from("applied_fines").select("kind, target_entry, fine_p"),
     supabase.from("fine_proposals").select("*").eq("kind", "gloat").eq("voided", false),
   ]);
@@ -167,7 +171,7 @@ export default async function TeamSeasonPage({
   // ---------- HEADLINES ----------
   type Row = { entry_id: number };
   const players = (allPlayers ?? []) as (Row & { display_name: string })[];
-  const allGwRows = (allGws ?? []) as Pick<GameweekResult, "gw" | "entry_id" | "points" | "loser_fine_p" | "below_avg_fine_p">[];
+  const allGwRows = (allGws ?? []) as Pick<GameweekResult, "gw" | "entry_id" | "points" | "loser_fine_p" | "below_avg_fine_p" | "points_on_bench">[];
   const allFineRows = (allApplied ?? []) as Pick<FineProposal, "kind" | "target_entry" | "fine_p">[];
   const allGloatRows = (allGloats ?? []) as FineProposal[];
 
@@ -241,6 +245,35 @@ export default async function TeamSeasonPage({
     return v + (s[(m - 20) % 10] || s[m] || s[0]);
   };
 
+  // ---------- BENCH ----------
+  const myBenchSeries = finishedEvents.map((e) => myByGw.get(e.id)?.points_on_bench ?? null);
+  const benchAvgByGw = new Map<number, number>();
+  const benchSumByGw = new Map<number, number>();
+  const benchCountByGw = new Map<number, number>();
+  for (const r of allGwRows) {
+    benchSumByGw.set(r.gw, (benchSumByGw.get(r.gw) ?? 0) + (r.points_on_bench ?? 0));
+    benchCountByGw.set(r.gw, (benchCountByGw.get(r.gw) ?? 0) + 1);
+  }
+  for (const [gw, sum] of benchSumByGw) {
+    benchAvgByGw.set(gw, sum / (benchCountByGw.get(gw) ?? 1));
+  }
+  const avgBenchSeries = finishedEvents.map((e) => benchAvgByGw.get(e.id) ?? null);
+  const benchSeries: Series[] = [
+    { label: player.display_name, color: "#c8102e", data: myBenchSeries },
+    { label: "League avg", color: "#0a0a0a", data: avgBenchSeries, dashed: true },
+  ];
+  const myTotalBench = myGws.reduce((s, r) => s + (r.points_on_bench ?? 0), 0);
+  const benchByEntry = new Map<number, number>();
+  for (const r of allGwRows) {
+    benchByEntry.set(r.entry_id, (benchByEntry.get(r.entry_id) ?? 0) + (r.points_on_bench ?? 0));
+  }
+  const benchRanked = [...benchByEntry.entries()].sort((a, b) => b[1] - a[1]);
+  const benchPos = benchRanked.findIndex(([id]) => id === entryId);
+  const myWorstBenchGw = myGws.reduce<{ gw: number; pts: number } | null>(
+    (worst, r) => (r.points_on_bench != null && (!worst || r.points_on_bench > worst.pts) ? { gw: r.gw, pts: r.points_on_bench } : worst),
+    null,
+  );
+
   const canEditBio = session !== null && (session.entry_id === entryId || session.is_admin);
 
   return (
@@ -260,7 +293,7 @@ export default async function TeamSeasonPage({
       {/* RECENT HEADLINES */}
       <section>
         <div className="kicker mb-2">Recent headlines</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <HeadlineCard
             label="League position"
             value={leaguePos >= 0 ? ord(leaguePos) : "—"}
@@ -281,6 +314,12 @@ export default async function TeamSeasonPage({
             label="Momentum"
             value={myAvgPos > 0 ? `Avg ${myAvgPos.toFixed(1)}` : "—"}
             sub={trend === "up" ? "↑ trending up" : trend === "down" ? "↓ trending down" : "— flat"}
+          />
+          <HeadlineCard
+            label="Bench shame"
+            value={benchPos >= 0 ? ord(benchPos) : "—"}
+            sub={`${myTotalBench} pts wasted`}
+            tabloid
           />
         </div>
       </section>
@@ -313,6 +352,7 @@ export default async function TeamSeasonPage({
         <ChartTab href={`/team/${entryId}?view=average`} active={view === "average"} label="Average" />
         <ChartTab href={`/team/${entryId}?view=yoy`} active={view === "yoy"} label="Year-on-year" />
         <ChartTab href={`/team/${entryId}?view=ffp`} active={view === "ffp"} label="Financial fair play" />
+        <ChartTab href={`/team/${entryId}?view=bench`} active={view === "bench"} label="Left on bench" />
       </nav>
 
       <section className="card p-4">
@@ -353,6 +393,20 @@ export default async function TeamSeasonPage({
               yFormatter={(v) => formatGbp(v)}
               yStep={500}
             />
+          </>
+        )}
+
+        {view === "bench" && (
+          <>
+            <div className="kicker">Left on the bench</div>
+            <h2 className="headline text-2xl mt-2">Per-GW bench points</h2>
+            <p className="text-sm italic text-ink/70 mb-2">
+              Points scored by your subs each week. Dashed line is the league average.
+              {myWorstBenchGw && myWorstBenchGw.pts > 0 && (
+                <> Worst week: <strong>GW {myWorstBenchGw.gw}</strong> ({myWorstBenchGw.pts} on the bench).</>
+              )}
+            </p>
+            <SeasonChart series={benchSeries} xLabels={xLabels} yLabel="Bench pts" yStep={5} />
           </>
         )}
       </section>
