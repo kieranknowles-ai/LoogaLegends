@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { missedReportFineP } from "@/lib/scoring";
+import { missedReportFineP, POOR_REPORT_FINE_P } from "@/lib/scoring";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -63,6 +63,67 @@ export async function toggleMissedReport(formData: FormData) {
       gw,
       fine_p,
       note: null,
+      proposed_by: session.entry_id,
+      seconded_by: session.entry_id,
+      seconded_at: now,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+}
+
+/**
+ * Mark a (player, gw) report as sub-par. Flat £5 fine. Mutually exclusive with missed_report
+ * for the same (target, gw): if a missed_report row exists (applied or voided), it gets voided
+ * before the poor_report is inserted, so a player isn't double-fined for the same week's report.
+ * Reason is required and shown publicly.
+ */
+export async function markPoorReport(formData: FormData) {
+  const { session, admin } = await requireAdmin();
+  const targetEntry = Number(formData.get("target_entry"));
+  const gw = Number(formData.get("gw"));
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  if (!Number.isFinite(targetEntry)) throw new Error("Invalid target.");
+  if (!Number.isFinite(gw) || gw < 1 || gw > 38) throw new Error("Invalid gameweek.");
+  if (!reason) throw new Error("Reason is required for a sub-par report.");
+
+  // Void any existing applied missed_report for this (target, gw) so we don't double-fine.
+  await admin
+    .from("fine_proposals")
+    .update({ voided: true, voided_reason: "superseded by sub-par" })
+    .eq("kind", "missed_report")
+    .eq("target_entry", targetEntry)
+    .eq("gw", gw)
+    .eq("voided", false);
+
+  // If a poor_report already exists for this (target, gw), update its note rather than stack a new one.
+  const { data: existing } = await admin
+    .from("fine_proposals")
+    .select("id, voided")
+    .eq("kind", "poor_report")
+    .eq("target_entry", targetEntry)
+    .eq("gw", gw)
+    .order("proposed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await admin
+      .from("fine_proposals")
+      .update({ note: reason, voided: false, voided_reason: null })
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const now = new Date().toISOString();
+    const { error } = await admin.from("fine_proposals").insert({
+      kind: "poor_report",
+      target_entry: targetEntry,
+      gw,
+      fine_p: POOR_REPORT_FINE_P,
+      note: reason,
       proposed_by: session.entry_id,
       seconded_by: session.entry_id,
       seconded_at: now,

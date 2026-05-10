@@ -6,6 +6,7 @@ import { formatGbp } from "@/lib/scoring";
 import { getBootstrap } from "@/lib/fpl";
 import {
   clearPassword,
+  markPoorReport,
   setDisplayName,
   setFirstName,
   toggleMissedReport,
@@ -81,15 +82,19 @@ export default async function AdminPage({
   const selectedLosers = losersByGw.get(selectedGw) ?? [];
   const selectedLoserPlayers = allPlayers.filter((p) => selectedLosers.includes(p.entry_id));
 
-  // Lookup: missed_report state per (entry_id, gw). "applied" | "voided" | undefined (none).
-  const reportState = new Map<string, "applied" | "voided">();
+  // Lookup: report state per (entry_id, gw). One of:
+  //   "missed"   — applied missed_report
+  //   "sub_par"  — applied poor_report (overrides missed if both exist)
+  //   undefined  — delivered fine (default)
+  const reportState = new Map<string, "missed" | "sub_par">();
   for (const p of allProposals) {
-    if (p.kind !== "missed_report" || p.gw == null) continue;
+    if (p.gw == null) continue;
+    if (p.kind !== "missed_report" && p.kind !== "poor_report") continue;
+    if (p.voided) continue;
     const key = `${p.target_entry}:${p.gw}`;
-    // Latest wins (proposals are sorted desc by proposed_at).
-    if (!reportState.has(key)) {
-      reportState.set(key, p.voided ? "voided" : "applied");
-    }
+    // poor_report wins over missed_report if both somehow exist non-voided.
+    if (p.kind === "poor_report") reportState.set(key, "sub_par");
+    else if (!reportState.has(key)) reportState.set(key, "missed");
   }
 
   return (
@@ -144,33 +149,53 @@ export default async function AdminPage({
                   )}
                   {selectedLoserPlayers.map((p) => {
                     const state = reportState.get(`${p.entry_id}:${selectedGw}`);
-                    const missed = state === "applied";
+                    const missed = state === "missed";
+                    const subPar = state === "sub_par";
                     return (
-                      <div key={p.entry_id} className="flex items-center justify-between px-4 py-3">
+                      <div key={p.entry_id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-3 gap-3">
                         <div className="font-bold">
                           <Link href={`/team/${p.entry_id}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
                             {p.display_name}
                           </Link>
                           {missed && (
-                            <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">
-                              — missed
-                            </span>
+                            <span className="ml-2 text-xs uppercase tracking-widest text-tabloid">— missed</span>
+                          )}
+                          {subPar && (
+                            <span className="ml-2 text-xs uppercase tracking-widest text-bargain bg-ink px-2 py-0.5">— sub-par</span>
                           )}
                         </div>
-                        <form action={toggleMissedReport}>
-                          <input type="hidden" name="target_entry" value={p.entry_id} />
-                          <input type="hidden" name="gw" value={selectedGw} />
-                          <button
-                            type="submit"
-                            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest min-w-[140px] ${
-                              missed
-                                ? "bg-tabloid text-paper"
-                                : "bg-bargain hover:bg-bargain/70"
-                            }`}
-                          >
-                            {missed ? "✗ Mark delivered" : "✓ Mark missed"}
-                          </button>
-                        </form>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <form action={toggleMissedReport}>
+                            <input type="hidden" name="target_entry" value={p.entry_id} />
+                            <input type="hidden" name="gw" value={selectedGw} />
+                            <button
+                              type="submit"
+                              className={`px-3 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest ${
+                                missed ? "bg-tabloid text-paper" : "bg-bargain hover:bg-bargain/70"
+                              }`}
+                            >
+                              {missed ? "✗ Mark delivered" : "✓ Mark missed"}
+                            </button>
+                          </form>
+                          <form action={markPoorReport} className="flex gap-1 items-center">
+                            <input type="hidden" name="target_entry" value={p.entry_id} />
+                            <input type="hidden" name="gw" value={selectedGw} />
+                            <input
+                              name="reason"
+                              required
+                              placeholder="why sub-par?"
+                              className="border-2 border-ink p-1 text-xs w-36"
+                            />
+                            <button
+                              type="submit"
+                              className={`px-3 py-2 border-3 border-ink uppercase font-bold text-xs tracking-widest ${
+                                subPar ? "bg-ink text-bargain" : "bg-paper hover:bg-bargain/30"
+                              }`}
+                            >
+                              {subPar ? "Update sub-par" : "Mark sub-par £5"}
+                            </button>
+                          </form>
+                        </div>
                       </div>
                     );
                   })}
@@ -183,7 +208,68 @@ export default async function AdminPage({
 
 
       <section>
+        <h2 className="headline text-2xl mb-3">Missed reports — log</h2>
+        <p className="text-xs text-ink/60 mb-2 italic">
+          Every missed-report row, applied or delivered. Use the per-GW toggle above for normal flow;
+          this is here for audit and bulk corrections.
+        </p>
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-ink text-paper uppercase text-xs">
+              <tr>
+                <th className="px-2 py-2 text-left">When</th>
+                <th className="px-2 py-2 text-left">GW</th>
+                <th className="px-2 py-2 text-left">Target</th>
+                <th className="px-2 py-2 text-right">£</th>
+                <th className="px-2 py-2 text-left">Logged by</th>
+                <th className="px-2 py-2 text-left">State</th>
+                <th className="px-2 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {allProposals.filter((p) => p.kind === "missed_report").map((p) => (
+                <tr key={p.id} className="border-t border-ink/20">
+                  <td className="px-2 py-2 whitespace-nowrap">{new Date(p.proposed_at).toLocaleDateString()}</td>
+                  <td className="px-2 py-2">GW {p.gw}</td>
+                  <td className="px-2 py-2">
+                    <Link href={`/team/${p.target_entry}`} className="underline decoration-tabloid">{nameOf(p.target_entry)}</Link>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatGbp(p.fine_p)}</td>
+                  <td className="px-2 py-2">
+                    <Link href={`/team/${p.proposed_by}`} className="underline">{nameOf(p.proposed_by)}</Link>
+                  </td>
+                  <td className="px-2 py-2 uppercase text-xs tracking-widest font-bold">
+                    {p.voided ? <span className="text-ink/60">delivered</span> : <span className="text-tabloid">missed</span>}
+                  </td>
+                  <td className="px-2 py-2">
+                    {!p.voided ? (
+                      <form action={voidProposal}>
+                        <input type="hidden" name="id" value={p.id} />
+                        <input type="hidden" name="reason" value="marked delivered from log" />
+                        <button className="btn-primary text-xs">Mark delivered</button>
+                      </form>
+                    ) : (
+                      <form action={unvoidProposal}>
+                        <input type="hidden" name="id" value={p.id} />
+                        <button className="btn-primary text-xs">Mark missed</button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {allProposals.filter((p) => p.kind === "missed_report").length === 0 && (
+                <tr><td colSpan={7} className="px-2 py-6 text-center italic text-ink/60">No missed reports yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
         <h2 className="headline text-2xl mb-3">All proposals</h2>
+        <p className="text-xs text-ink/60 mb-2 italic">
+          Gloats and emoji crimes. Missed reports have their own log above.
+        </p>
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-ink text-paper uppercase text-xs">
@@ -200,10 +286,10 @@ export default async function AdminPage({
               </tr>
             </thead>
             <tbody>
-              {allProposals.map((p) => (
+              {allProposals.filter((p) => p.kind !== "missed_report").map((p) => (
                 <tr key={p.id} className={`border-t border-ink/20 ${p.voided ? "opacity-50" : ""}`}>
                   <td className="px-2 py-2 whitespace-nowrap">{new Date(p.proposed_at).toLocaleDateString()}</td>
-                  <td className="px-2 py-2">{p.kind}{p.gw ? ` GW${p.gw}` : ""}</td>
+                  <td className="px-2 py-2">{p.kind === "poor_report" ? "sub-par" : p.kind}{p.gw ? ` GW${p.gw}` : ""}</td>
                   <td className="px-2 py-2">
                     <Link href={`/team/${p.target_entry}`} className="underline decoration-tabloid">{nameOf(p.target_entry)}</Link>
                   </td>
@@ -240,7 +326,7 @@ export default async function AdminPage({
                   </td>
                 </tr>
               ))}
-              {allProposals.length === 0 && (
+              {allProposals.filter((p) => p.kind !== "missed_report").length === 0 && (
                 <tr><td colSpan={9} className="px-2 py-6 text-center italic text-ink/60">No proposals yet.</td></tr>
               )}
             </tbody>

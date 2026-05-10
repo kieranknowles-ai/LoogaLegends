@@ -3,6 +3,7 @@
 export const GLOAT_FINE_P = 100; // £1
 export const MISSED_REPORT_BASE_P = 1000; // £10
 export const MISSED_REPORT_MULTIPLIER = 1.5;
+export const POOR_REPORT_FINE_P = 500; // £5 — sub-par delivered report
 export const LOSER_FINE_PER_POINT_P = 15; // 15p per point gap
 export const BELOW_AVG_FINE_PER_POINT_P = 10; // 10p per point under average
 

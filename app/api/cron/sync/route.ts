@@ -53,12 +53,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ syncedGws: [], message: "No finished GWs yet" });
   }
 
+  // ?force=1 reprocesses every finished GW (used after schema additions like points_on_bench
+  // to backfill existing rows — upsert on (gw, entry_id) overwrites).
+  const force = request.nextUrl.searchParams.get("force") === "1";
   const { data: existing } = await admin
     .from("gameweek_results")
     .select("gw")
     .in("gw", finishedGws);
   const synced = new Set((existing ?? []).map((r: { gw: number }) => r.gw));
-  const todo = finishedGws.filter((gw) => !synced.has(gw)).sort((a, b) => a - b);
+  const todo = force
+    ? [...finishedGws].sort((a, b) => a - b)
+    : finishedGws.filter((gw) => !synced.has(gw)).sort((a, b) => a - b);
 
   if (todo.length === 0) {
     return NextResponse.json({ syncedGws: [], message: "Up to date" });
@@ -101,6 +106,7 @@ export async function GET(request: NextRequest) {
         event_transfers_cost: evt.event_transfers_cost ?? 0,
         bank: evt.bank ?? 0,
         squad_value: evt.value ?? 0,
+        points_on_bench: evt.points_on_bench ?? 0,
       };
     });
 

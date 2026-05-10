@@ -24,9 +24,10 @@ export type GameweekResult = {
   event_transfers_cost: number;
   bank: number;
   squad_value: number;
+  points_on_bench: number;
 };
 
-export type FineKind = "gloat" | "missed_report" | "emoji";
+export type FineKind = "gloat" | "missed_report" | "emoji" | "poor_report";
 
 export type GloatReason =
   | "general_arrogance"

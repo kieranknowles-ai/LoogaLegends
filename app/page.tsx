@@ -39,9 +39,13 @@ type Aggregate = {
   // Bank — latest GW values, in 0.1m units
   bank: number;
   squadValue: number;
+  // Left on the bench
+  benchTotal: number;
+  benchLatest: number;
+  benchWeeksOver10: number;
 };
 
-type View = "fines" | "points" | "gloating" | "momentum" | "bank";
+type View = "fines" | "points" | "gloating" | "momentum" | "bank" | "bench";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MOMENTUM_WINDOW = 10;
@@ -112,6 +116,8 @@ export default async function Page({
       ? "momentum"
       : viewParam === "bank"
       ? "bank"
+      : viewParam === "bench"
+      ? "bench"
       : "fines";
 
   const supabase = createAdminClient();
@@ -178,6 +184,9 @@ export default async function Page({
         gloatPoints: 0,
         bank: 0,
         squadValue: 0,
+        benchTotal: 0,
+        benchLatest: 0,
+        benchWeeksOver10: 0,
       },
     ]),
   );
@@ -190,19 +199,22 @@ export default async function Page({
     a.totalPoints += r.points;
     a.totalHitsCost += r.event_transfers_cost ?? 0;
     if (r.points < 0) a.weeksWithNegativePoints += 1;
+    a.benchTotal += r.points_on_bench ?? 0;
+    if ((r.points_on_bench ?? 0) >= 10) a.benchWeeksOver10 += 1;
     if (r.gw === latestGw) {
       a.latestGwPoints = r.points;
       a.latestGwHitsCost = r.event_transfers_cost ?? 0;
       a.latestGwWentNegative = r.points < 0;
       a.bank = r.bank ?? 0;
       a.squadValue = r.squad_value ?? 0;
+      a.benchLatest = r.points_on_bench ?? 0;
     }
   }
   for (const f of fines) {
     const a = byEntry.get(f.target_entry);
     if (!a) continue;
     if (f.kind === "gloat") a.gloatsP += f.fine_p;
-    else if (f.kind === "missed_report") a.missedP += f.fine_p;
+    else if (f.kind === "missed_report" || f.kind === "poor_report") a.missedP += f.fine_p;
     else if (f.kind === "emoji") a.emojiP += f.fine_p;
   }
   for (const a of byEntry.values()) {
@@ -258,6 +270,7 @@ export default async function Page({
   const rankedByFines = [...all].sort((a, b) => b.totalP - a.totalP);
   const rankedByPoints = [...all].sort((a, b) => b.totalPoints - a.totalPoints);
   const rankedByGloating = [...all].sort((a, b) => b.gloatPoints - a.gloatPoints);
+  const rankedByBench = [...all].sort((a, b) => b.benchTotal - a.benchTotal);
 
   // Momentum: intra-league position per GW for the last N GWs.
   const playedGws = Array.from(new Set(gwResults.map((r) => r.gw))).sort((a, b) => a - b);
@@ -431,6 +444,14 @@ export default async function Page({
           >
             Bank
           </Link>
+          <Link
+            href="/?view=bench"
+            className={`px-4 py-2 border-3 border-ink uppercase font-bold text-sm tracking-widest ${
+              view === "bench" ? "bg-tabloid text-paper" : "bg-paper text-ink hover:bg-bargain"
+            }`}
+          >
+            Left on bench
+          </Link>
         </div>
 
         {view === "points" && (
@@ -587,7 +608,7 @@ export default async function Page({
                     <div>Below avg: <strong>{formatGbp(a.belowAvgP)}</strong></div>
                     <div>Gloats: <strong>{formatGbp(a.gloatsP)}</strong></div>
                     <div>Emojis: <strong>{formatGbp(a.emojiP)}</strong></div>
-                    <div>Missed: <strong>{formatGbp(a.missedP)}</strong></div>
+                    <div>Reports: <strong>{formatGbp(a.missedP)}</strong></div>
                     <div>AI: <strong>{formatGbp(a.aiP)}</strong></div>
                   </div>
                 </div>
@@ -605,7 +626,7 @@ export default async function Page({
                     <th className="px-3 py-2 text-right">Below avg</th>
                     <th className="px-3 py-2 text-right">Gloats</th>
                     <th className="px-3 py-2 text-right">Emojis</th>
-                    <th className="px-3 py-2 text-right">Missed reports</th>
+                    <th className="px-3 py-2 text-right" title="Missed reports plus any sub-par reports">Reports</th>
                     <th className="px-3 py-2 text-right">AI cheats</th>
                     <th className="px-3 py-2 text-right">Owed</th>
                   </tr>
@@ -714,6 +735,81 @@ export default async function Page({
             </>
           );
         })()}
+
+        {view === "bench" && (
+          <>
+            <h2 className="headline text-3xl mb-3">
+              <span className="shock">LEFT</span> ON THE BENCH
+            </h2>
+            <p className="text-sm italic mb-3">
+              Total points scored by benched players this season — points you had on your team but didn&apos;t play.
+              Top of the table = wasted the most. {rankedByBench[0] && rankedByBench[0].benchTotal > 0 ? (
+                <>Current chump: <strong>{rankedByBench[0].player.display_name}</strong> ({rankedByBench[0].benchTotal} wasted).</>
+              ) : null}
+            </p>
+
+            {/* MOBILE: card stack */}
+            <div className="md:hidden space-y-2">
+              {rankedByBench.map((a, i) => (
+                <div key={a.player.entry_id} className="card p-3">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <span className="font-display text-xl mr-2">{i + 1}</span>
+                      <Link
+                        href={`/team/${a.player.entry_id}`}
+                        className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold"
+                      >
+                        {a.player.display_name}
+                      </Link>
+                    </div>
+                    <span className="font-display text-2xl tabular-nums text-tabloid">{a.benchTotal}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-xs mt-2 text-ink/70">
+                    <div>GW {latestGw}: <strong>{a.benchLatest}</strong></div>
+                    <div>Weeks ≥10: <strong>{a.benchWeeksOver10}</strong></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* DESKTOP: table */}
+            <div className="card overflow-x-auto hidden md:block">
+              <table className="w-full text-sm">
+                <thead className="bg-ink text-paper uppercase text-xs">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Manager</th>
+                    <th className="px-3 py-2 text-right" title="Points scored on bench in the latest GW">
+                      GW {latestGw}
+                    </th>
+                    <th className="px-3 py-2 text-right" title="Number of weeks with 10+ wasted bench points">
+                      Howlers (≥10)
+                    </th>
+                    <th className="px-3 py-2 text-right">Total wasted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankedByBench.map((a, i) => (
+                    <tr key={a.player.entry_id} className="border-t border-ink/20 hover:bg-bargain/30">
+                      <td className="px-3 py-2 font-display text-lg">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <Link
+                          href={`/team/${a.player.entry_id}`}
+                          className="underline decoration-tabloid decoration-2 underline-offset-2"
+                        >
+                          {a.player.display_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.benchLatest}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{a.benchWeeksOver10}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-bold text-tabloid">{a.benchTotal}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
         {view === "momentum" && (
           <>
