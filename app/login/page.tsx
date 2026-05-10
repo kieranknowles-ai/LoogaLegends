@@ -28,7 +28,6 @@ export default async function LoginPage({
           required
           autoComplete="username"
           className="w-full border-3 border-ink p-2 bg-paper"
-          placeholder="e.g. mark"
         />
         <label className="block text-xs uppercase font-bold tracking-widest">Password</label>
         <input

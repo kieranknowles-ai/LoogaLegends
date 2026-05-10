@@ -29,14 +29,19 @@ async function gwForDate(dateIso: string): Promise<number | null> {
 export async function proposeFine(formData: FormData) {
   const session = await getSession();
   if (!session) redirect("/login?next=/propose");
+  if (!session.is_admin) throw new Error("Only admins can register gloats.");
 
   const targetEntry = Number(formData.get("target_entry"));
+  const secondedBy = Number(formData.get("seconded_by"));
   const note = String(formData.get("note") ?? "").trim() || null;
   const gloatDate = String(formData.get("gloat_date") ?? "").trim();
   const reasonRaw = String(formData.get("gloat_reason") ?? "").trim();
 
   if (!Number.isFinite(targetEntry)) throw new Error("Pick a target.");
   if (targetEntry === session.entry_id) throw new Error("Can't fine yourself.");
+  if (!Number.isFinite(secondedBy)) throw new Error("Pick a seconder.");
+  if (secondedBy === session.entry_id) throw new Error("Seconder must be someone else.");
+  if (secondedBy === targetEntry) throw new Error("Seconder can't be the target.");
   if (!gloatDate) throw new Error("Pick a date.");
   if (!VALID_REASONS.includes(reasonRaw as GloatReason)) throw new Error("Pick a reason.");
 
@@ -50,12 +55,13 @@ export async function proposeFine(formData: FormData) {
     fine_p: GLOAT_FINE_P,
     note,
     proposed_by: session.entry_id,
+    seconded_by: secondedBy,
+    seconded_at: new Date().toISOString(),
     gloat_date: gloatDate,
     gloat_reason: reasonRaw,
   });
   if (error) throw new Error(error.message);
 
-  revalidatePath("/second");
   revalidatePath("/propose");
   redirect("/");
 }

@@ -27,7 +27,10 @@ export default async function ProposePage() {
         <div className="kicker">Anonymous tip-off</div>
         <h1 className="headline text-4xl mt-3">REPORT A CRIME</h1>
         <p className="mt-2 text-sm italic">
-          Logged in as <strong>{session.display_name}</strong>. Pick gloat or emoji below.
+          Logged in as <strong>{session.display_name}</strong>.{" "}
+          {session.is_admin
+            ? "Register a gloat or report an emoji crime below."
+            : "Report an emoji crime below."}
           {session.is_admin && (
             <>
               {" "}For missed reports, head to <Link href="/admin" className="underline font-bold">admin</Link>.
@@ -36,63 +39,85 @@ export default async function ProposePage() {
         </p>
       </div>
 
-      {/* GLOAT */}
-      <div className="card p-6">
-        <div className="kicker">A gloat</div>
-        <h2 className="headline text-2xl mt-2">Propose a gloat — £1</h2>
-        <p className="text-sm italic mt-1">
-          Spotted boasting in the chat? Submit it. Another member must second within 7 days
-          or it goes stale and the target gets away with it.
-        </p>
-        <form action={proposeFine} className="mt-3 space-y-4">
-          <input type="hidden" name="kind" value="gloat" />
+      {/* GLOAT — admins only */}
+      {session.is_admin ? (
+        <div className="card p-6">
+          <div className="kicker">A gloat</div>
+          <h2 className="headline text-2xl mt-2">Register a gloat — £1</h2>
+          <p className="text-sm italic mt-1">
+            Pick the guilty party and whoever else witnessed it. Auto-applied on submit — no separate seconding step.
+          </p>
+          <form action={proposeFine} className="mt-3 space-y-4">
+            <input type="hidden" name="kind" value="gloat" />
 
-          <div>
-            <label className="block text-xs uppercase font-bold tracking-widest mb-1">Target</label>
-            <select name="target_entry" className="w-full border-3 border-ink p-2 bg-paper" required>
-              <option value="">Pick a victim...</option>
-              {others.map((p) => (
-                <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs uppercase font-bold tracking-widest mb-1">Date of gloat</label>
-              <input
-                type="date"
-                name="gloat_date"
-                defaultValue={today}
-                max={today}
-                required
-                className="w-full border-3 border-ink p-2 bg-paper"
-              />
-            </div>
-            <div>
-              <label className="block text-xs uppercase font-bold tracking-widest mb-1">Reason</label>
-              <select name="gloat_reason" required className="w-full border-3 border-ink p-2 bg-paper">
-                <option value="">Pick a reason...</option>
-                {Object.entries(GLOAT_REASON_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
+              <label className="block text-xs uppercase font-bold tracking-widest mb-1">Target (guilty)</label>
+              <select name="target_entry" className="w-full border-3 border-ink p-2 bg-paper" required>
+                <option value="">Pick a victim...</option>
+                {others.map((p) => (
+                  <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>
                 ))}
               </select>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs uppercase font-bold tracking-widest mb-1">Quote / context</label>
-            <textarea
-              name="note"
-              rows={3}
-              className="w-full border-3 border-ink p-2 bg-paper"
-              placeholder="Quote the gloat. Be specific."
-            />
-          </div>
+            <div>
+              <label className="block text-xs uppercase font-bold tracking-widest mb-1">Seconded by</label>
+              <select name="seconded_by" className="w-full border-3 border-ink p-2 bg-paper" required>
+                <option value="">Pick a witness...</option>
+                {others.map((p) => (
+                  <option key={p.entry_id} value={p.entry_id}>{p.display_name}</option>
+                ))}
+              </select>
+              <p className="text-xs italic mt-1 text-ink/60">
+                Must be different from the target. You (the proposer) can&apos;t second your own.
+              </p>
+            </div>
 
-          <button type="submit" className="btn-primary w-full">Submit gloat for seconding</button>
-        </form>
-      </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs uppercase font-bold tracking-widest mb-1">Date of gloat</label>
+                <input
+                  type="date"
+                  name="gloat_date"
+                  defaultValue={today}
+                  max={today}
+                  required
+                  className="w-full border-3 border-ink p-2 bg-paper"
+                />
+              </div>
+              <div>
+                <label className="block text-xs uppercase font-bold tracking-widest mb-1">Reason</label>
+                <select name="gloat_reason" required className="w-full border-3 border-ink p-2 bg-paper">
+                  <option value="">Pick a reason...</option>
+                  {Object.entries(GLOAT_REASON_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs uppercase font-bold tracking-widest mb-1">Quote / context</label>
+              <textarea
+                name="note"
+                rows={3}
+                className="w-full border-3 border-ink p-2 bg-paper"
+                placeholder="Quote the gloat. Be specific."
+              />
+            </div>
+
+            <button type="submit" className="btn-primary w-full">Register gloat</button>
+          </form>
+        </div>
+      ) : (
+        <div className="card p-6 bg-paper">
+          <div className="kicker">A gloat</div>
+          <h2 className="headline text-2xl mt-2">Spotted a gloat?</h2>
+          <p className="text-sm italic mt-1">
+            Gloats are now registered by admins only. Tell Kieran or Mark and they&apos;ll log it.
+          </p>
+        </div>
+      )}
 
       {/* EMOJI */}
       <div className="card p-6 bg-bargain">
