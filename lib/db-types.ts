@@ -16,6 +16,7 @@ export type Player = {
 export type GameweekResult = {
   gw: number;
   entry_id: number;
+  season: string;
   points: number;
   national_average: number;
   loser_fine_p: number;
@@ -45,6 +46,7 @@ export const GLOAT_REASON_LABELS: Record<GloatReason, string> = {
 export type FineProposal = {
   id: number;
   kind: FineKind;
+  season: string;
   target_entry: number;
   gw: number | null;
   fine_p: number;

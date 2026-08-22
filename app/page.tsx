@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buyInPenceFromTotalPot, formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
 import { getSession } from "@/lib/auth";
+import { CURRENT_SEASON } from "@/lib/season";
 import { secondProposal } from "./second/actions";
 import { triggerAiTrap } from "./actions/ai-trap";
 import { GLOAT_REASON_LABELS, type GameweekResult, type Player, type FineProposal } from "@/lib/db-types";
@@ -170,16 +171,18 @@ export default async function Page({
 
   const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }, { data: emojiLog }] = await Promise.all([
     supabase.from("players").select("entry_id, display_name, ai_caught_count").order("display_name"),
-    supabase.from("gameweek_results").select("*"),
-    supabase.from("applied_fines").select("*"),
+    supabase.from("gameweek_results").select("*").eq("season", CURRENT_SEASON),
+    supabase.from("applied_fines").select("*").eq("season", CURRENT_SEASON),
     supabase
       .from("fine_proposals")
       .select("*")
+      .eq("season", CURRENT_SEASON)
       .eq("kind", "gloat")
       .eq("voided", false),
     supabase
       .from("fine_proposals")
       .select("*")
+      .eq("season", CURRENT_SEASON)
       .eq("kind", "gloat")
       .eq("voided", false)
       .is("seconded_at", null)
@@ -187,6 +190,7 @@ export default async function Page({
     supabase
       .from("fine_proposals")
       .select("*")
+      .eq("season", CURRENT_SEASON)
       .eq("kind", "emoji")
       .eq("voided", false)
       .order("proposed_at", { ascending: false })

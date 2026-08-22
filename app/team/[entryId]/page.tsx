@@ -6,6 +6,7 @@ import { formatGbp, GLOAT_FINE_P } from "@/lib/scoring";
 import { SeasonChart, type Series } from "./_components/SeasonChart";
 import { getSession } from "@/lib/auth";
 import { updateBio } from "./actions";
+import { CURRENT_SEASON } from "@/lib/season";
 import type { GameweekResult, FineProposal } from "@/lib/db-types";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -51,16 +52,26 @@ export default async function TeamSeasonPage({
     supabase
       .from("gameweek_results")
       .select("*")
+      .eq("season", CURRENT_SEASON)
       .eq("entry_id", entryId)
       .order("gw", { ascending: true }),
     supabase
       .from("applied_fines")
       .select("*")
+      .eq("season", CURRENT_SEASON)
       .eq("target_entry", entryId),
     supabase.from("players").select("entry_id, display_name"),
-    supabase.from("gameweek_results").select("gw, entry_id, points, loser_fine_p, below_avg_fine_p, points_on_bench"),
-    supabase.from("applied_fines").select("kind, target_entry, fine_p"),
-    supabase.from("fine_proposals").select("*").eq("kind", "gloat").eq("voided", false),
+    supabase
+      .from("gameweek_results")
+      .select("gw, entry_id, points, loser_fine_p, below_avg_fine_p, points_on_bench")
+      .eq("season", CURRENT_SEASON),
+    supabase.from("applied_fines").select("kind, target_entry, fine_p").eq("season", CURRENT_SEASON),
+    supabase
+      .from("fine_proposals")
+      .select("*")
+      .eq("season", CURRENT_SEASON)
+      .eq("kind", "gloat")
+      .eq("voided", false),
   ]);
 
   if (!player) notFound();
@@ -347,6 +358,38 @@ export default async function TeamSeasonPage({
           <p className="italic text-ink/50">No bio yet. Manager hasn&apos;t written one.</p>
         )}
       </section>
+
+      {/* CAREER — FPL's own record, every season this manager's played, not just Looga Legends years */}
+      {history.past && history.past.length > 0 && (
+        <section className="card p-5">
+          <div className="kicker">Career</div>
+          <h2 className="headline text-2xl mt-2 mb-2">Seasons played</h2>
+          <p className="text-xs italic text-ink/60 mb-3">
+            Straight from FPL — total points and overall rank each season. Doesn&apos;t include Looga Legends
+            fines; those only go back to when this dashboard started keeping score.
+          </p>
+          <div className="card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-ink text-paper uppercase text-xs">
+                <tr>
+                  <th className="px-3 py-2 text-left">Season</th>
+                  <th className="px-3 py-2 text-right">Total points</th>
+                  <th className="px-3 py-2 text-right">Overall rank</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...history.past].reverse().map((s) => (
+                  <tr key={s.season_name} className="border-t border-ink/20">
+                    <td className="px-3 py-2 font-bold">{s.season_name}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{s.total_points}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{s.rank.toLocaleString("en-GB")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <nav className="flex flex-wrap gap-2">
         <ChartTab href={`/team/${entryId}?view=average`} active={view === "average"} label="Average" />

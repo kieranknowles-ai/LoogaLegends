@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBootstrap, getEntryHistory, getLeagueStandings } from "@/lib/fpl";
 import { computeGameweekFines } from "@/lib/scoring";
+import { CURRENT_SEASON } from "@/lib/season";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -54,11 +55,14 @@ export async function GET(request: NextRequest) {
   }
 
   // ?force=1 reprocesses every finished GW (used after schema additions like points_on_bench
-  // to backfill existing rows — upsert on (gw, entry_id) overwrites).
+  // to backfill existing rows — upsert on (season, gw, entry_id) overwrites).
+  // Scoped to CURRENT_SEASON: without this, GW1 synced from a prior season would look
+  // "already synced" and the new season's GW1 would never get pulled.
   const force = request.nextUrl.searchParams.get("force") === "1";
   const { data: existing } = await admin
     .from("gameweek_results")
     .select("gw")
+    .eq("season", CURRENT_SEASON)
     .in("gw", finishedGws);
   const synced = new Set((existing ?? []).map((r: { gw: number }) => r.gw));
   const todo = force
@@ -98,6 +102,7 @@ export async function GET(request: NextRequest) {
       return {
         gw,
         entry_id: b.entryId,
+        season: CURRENT_SEASON,
         points: b.points,
         national_average: event.average_entry_score,
         loser_fine_p: b.loserFineP,
@@ -112,7 +117,7 @@ export async function GET(request: NextRequest) {
 
     const { error } = await admin
       .from("gameweek_results")
-      .upsert(rows, { onConflict: "gw,entry_id" });
+      .upsert(rows, { onConflict: "season,gw,entry_id" });
     if (error) {
       return NextResponse.json(
         { error: `gw ${gw} insert: ${error.message}`, syncedSoFar: inserted },

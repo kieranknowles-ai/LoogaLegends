@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { GLOAT_FINE_P } from "@/lib/scoring";
 import { getBootstrap } from "@/lib/fpl";
 import { COMMON_EMOJIS, EMOJI_FINE_P, GLOAT_REASON_LABELS, type GloatReason } from "@/lib/db-types";
+import { CURRENT_SEASON } from "@/lib/season";
 
 const VALID_REASONS = Object.keys(GLOAT_REASON_LABELS) as GloatReason[];
 
@@ -50,6 +51,7 @@ export async function proposeFine(formData: FormData) {
   const admin = createAdminClient();
   const { error } = await admin.from("fine_proposals").insert({
     kind: "gloat",
+    season: CURRENT_SEASON,
     target_entry: targetEntry,
     gw,
     fine_p: GLOAT_FINE_P,
@@ -99,6 +101,7 @@ export async function proposeEmoji(formData: FormData) {
   const rows = [
     {
       kind: "emoji",
+      season: CURRENT_SEASON,
       target_entry: targetEntry,
       gw: null,
       fine_p: perpFineP,
@@ -116,6 +119,7 @@ export async function proposeEmoji(formData: FormData) {
   if (reporterUsedEmoji) {
     rows.push({
       kind: "emoji",
+      season: CURRENT_SEASON,
       target_entry: session.entry_id,
       gw: null,
       fine_p: EMOJI_FINE_P,

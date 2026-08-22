@@ -14,6 +14,7 @@ import {
   voidProposal,
 } from "./actions";
 import type { FineProposal, Player, GameweekResult } from "@/lib/db-types";
+import { CURRENT_SEASON } from "@/lib/season";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +41,13 @@ export default async function AdminPage({
 
   const admin = createAdminClient();
   const [{ data: proposals }, { data: players }, { data: gwsResults }, bootstrap] = await Promise.all([
-    admin.from("fine_proposals").select("*").order("proposed_at", { ascending: false }),
+    admin.from("fine_proposals").select("*").eq("season", CURRENT_SEASON).order("proposed_at", { ascending: false }),
     admin.from("players").select("*").order("display_name"),
-    admin.from("gameweek_results").select("gw, entry_id, points").order("gw", { ascending: true }),
+    admin
+      .from("gameweek_results")
+      .select("gw, entry_id, points")
+      .eq("season", CURRENT_SEASON)
+      .order("gw", { ascending: true }),
     getBootstrap(),
   ]);
 

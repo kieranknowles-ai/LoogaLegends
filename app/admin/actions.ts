@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { missedReportFineP, POOR_REPORT_FINE_P } from "@/lib/scoring";
+import { CURRENT_SEASON } from "@/lib/season";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -32,6 +33,7 @@ export async function toggleMissedReport(formData: FormData) {
   const { data: existing } = await admin
     .from("fine_proposals")
     .select("id, voided")
+    .eq("season", CURRENT_SEASON)
     .eq("kind", "missed_report")
     .eq("target_entry", targetEntry)
     .eq("gw", gw)
@@ -47,10 +49,12 @@ export async function toggleMissedReport(formData: FormData) {
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
   } else {
-    // Fresh: count prior applied missed reports for the progression.
+    // Fresh: count prior applied missed reports for the progression, this season only —
+    // the fine escalation (£10, £15, £22.50...) resets when a new season starts.
     const { count } = await admin
       .from("fine_proposals")
       .select("id", { count: "exact", head: true })
+      .eq("season", CURRENT_SEASON)
       .eq("kind", "missed_report")
       .eq("target_entry", targetEntry)
       .eq("voided", false)
@@ -59,6 +63,7 @@ export async function toggleMissedReport(formData: FormData) {
     const now = new Date().toISOString();
     const { error } = await admin.from("fine_proposals").insert({
       kind: "missed_report",
+      season: CURRENT_SEASON,
       target_entry: targetEntry,
       gw,
       fine_p,
@@ -94,6 +99,7 @@ export async function markPoorReport(formData: FormData) {
   await admin
     .from("fine_proposals")
     .update({ voided: true, voided_reason: "superseded by sub-par" })
+    .eq("season", CURRENT_SEASON)
     .eq("kind", "missed_report")
     .eq("target_entry", targetEntry)
     .eq("gw", gw)
@@ -103,6 +109,7 @@ export async function markPoorReport(formData: FormData) {
   const { data: existing } = await admin
     .from("fine_proposals")
     .select("id, voided")
+    .eq("season", CURRENT_SEASON)
     .eq("kind", "poor_report")
     .eq("target_entry", targetEntry)
     .eq("gw", gw)
@@ -120,6 +127,7 @@ export async function markPoorReport(formData: FormData) {
     const now = new Date().toISOString();
     const { error } = await admin.from("fine_proposals").insert({
       kind: "poor_report",
+      season: CURRENT_SEASON,
       target_entry: targetEntry,
       gw,
       fine_p: POOR_REPORT_FINE_P,
@@ -145,10 +153,11 @@ export async function addMissedReport(formData: FormData) {
   if (!Number.isFinite(targetEntry)) throw new Error("Pick a target.");
   if (!Number.isFinite(gw) || gw < 1 || gw > 38) throw new Error("Pick a gameweek.");
 
-  // Count this player's prior applied missed reports → next-fine progression.
+  // Count this player's prior applied missed reports this season → next-fine progression.
   const { count } = await admin
     .from("fine_proposals")
     .select("id", { count: "exact", head: true })
+    .eq("season", CURRENT_SEASON)
     .eq("kind", "missed_report")
     .eq("target_entry", targetEntry)
     .eq("voided", false)
@@ -158,6 +167,7 @@ export async function addMissedReport(formData: FormData) {
   const now = new Date().toISOString();
   const { error } = await admin.from("fine_proposals").insert({
     kind: "missed_report",
+    season: CURRENT_SEASON,
     target_entry: targetEntry,
     gw,
     fine_p,
