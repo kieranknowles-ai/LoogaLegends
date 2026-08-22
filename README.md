@@ -23,6 +23,17 @@ Total cost at expected volumes: **£0/month**.
 
 Voting flow: any member can propose a gloat / missed report; another member (not the target, not the proposer) seconds it; once seconded, the fine is applied automatically. Admin can void any proposal.
 
+## New season checklist
+
+1. Run `supabase/migrations/0014_seasons.sql` in Supabase's SQL Editor. It tags everything currently
+   in the database as last season (defaults to `'2025-26'` — edit the migration first if that's wrong
+   for your league) and makes room for a new one.
+2. Bump `CURRENT_SEASON` in `lib/season.ts` to the new season (e.g. `"2026-27"`).
+3. Deploy. The next cron sync writes fresh rows under the new season automatically — last season's
+   data isn't touched.
+4. Browse last season any time under **History** in the nav. The manager dossier's **Career** section
+   (FPL's own points + rank per season) needs no migration and updates itself.
+
 ## Local setup
 
 ```bash

@@ -34,6 +34,7 @@ export default async function RootLayout({
               LOOGA <span className="text-tabloid">LEGENDS</span>
             </Link>
             <nav className="flex gap-4 text-sm uppercase font-bold items-baseline">
+              <Link href="/history" className="hover:text-tabloid">History</Link>
               {session ? (
                 <>
                   <Link href="/propose" className="hover:text-tabloid">Propose</Link>
