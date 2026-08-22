@@ -95,6 +95,7 @@ export default async function HistoryPage({
   const rankedByFines = [...byEntry.values()].sort((a, b) => b.totalFinesP - a.totalFinesP);
   const totalPotP = [...byEntry.values()].reduce((sum, r) => sum + r.totalFinesP, 0);
   const champion = rankedByPoints[0];
+  const easyThirdEntry = rankedByPoints[2]?.entryId;
 
   return (
     <div className="space-y-8">
@@ -132,20 +133,26 @@ export default async function HistoryPage({
 
         {/* MOBILE: card stack */}
         <div className="md:hidden space-y-2">
-          {rankedByPoints.map((r, i) => (
-            <div key={r.entryId} className="card p-3">
-              <div className="flex justify-between items-baseline gap-2">
-                <div>
-                  <span className="font-display text-xl mr-2">{i === 0 ? "🏆" : i + 1}</span>
-                  <Link href={`/team/${r.entryId}`} className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold">
-                    {r.displayName}
-                  </Link>
+          {rankedByPoints.map((r, i) => {
+            const isEasyThird = r.entryId === easyThirdEntry;
+            return (
+              <div key={r.entryId} className={`card p-3 ${isEasyThird ? "bg-bargain" : ""}`}>
+                <div className="flex justify-between items-baseline gap-2">
+                  <div>
+                    <span className="font-display text-xl mr-2">{isEasyThird ? "🏆" : i + 1}</span>
+                    <Link href={`/team/${r.entryId}`} className="underline decoration-tabloid decoration-2 underline-offset-2 font-bold">
+                      {r.displayName}
+                    </Link>
+                  </div>
+                  <span className="font-display text-2xl tabular-nums">{r.totalPoints}</span>
                 </div>
-                <span className="font-display text-2xl tabular-nums">{r.totalPoints}</span>
+                {isEasyThird && (
+                  <div className="mt-1"><span className="shock text-[11px]">★ EASY THIRD ★ Picked the venue</span></div>
+                )}
+                <div className="text-xs mt-1 text-ink/70">Owed that season: {formatGbp(r.totalFinesP)}</div>
               </div>
-              <div className="text-xs mt-1 text-ink/70">Owed that season: {formatGbp(r.totalFinesP)}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* DESKTOP: table */}
@@ -160,18 +167,31 @@ export default async function HistoryPage({
               </tr>
             </thead>
             <tbody>
-              {rankedByPoints.map((r, i) => (
-                <tr key={r.entryId} className="border-t border-ink/20 hover:bg-bargain/30">
-                  <td className="px-3 py-2 font-display text-lg">{i === 0 ? "🏆" : i + 1}</td>
-                  <td className="px-3 py-2">
-                    <Link href={`/team/${r.entryId}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
-                      {r.displayName}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums font-bold">{r.totalPoints}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink/60">{formatGbp(r.totalFinesP)}</td>
-                </tr>
-              ))}
+              {rankedByPoints.map((r, i) => {
+                const isEasyThird = r.entryId === easyThirdEntry;
+                return (
+                  <tr
+                    key={r.entryId}
+                    className={`border-t border-ink/20 ${isEasyThird ? "bg-bargain border-y-4 border-ink" : "hover:bg-bargain/30"}`}
+                  >
+                    <td className={`px-3 py-2 font-display text-lg ${isEasyThird ? "text-2xl" : ""}`}>
+                      {isEasyThird ? "🏆" : i + 1}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Link href={`/team/${r.entryId}`} className="underline decoration-tabloid decoration-2 underline-offset-2">
+                        {r.displayName}
+                      </Link>
+                      {isEasyThird && (
+                        <div className="mt-1">
+                          <span className="shock text-[11px]">★ EASY THIRD ★ Picked the venue</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold">{r.totalPoints}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink/60">{formatGbp(r.totalFinesP)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
