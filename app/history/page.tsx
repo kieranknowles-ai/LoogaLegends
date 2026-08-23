@@ -49,17 +49,20 @@ export default async function HistoryPage({
   const season = seasonParam && seasons.includes(seasonParam) ? seasonParam : seasons[0];
 
   const [{ data: players }, { data: gws }, { data: fines }] = await Promise.all([
-    supabase.from("players").select("entry_id, display_name"),
+    supabase.from("players").select("entry_id, display_name, hidden"),
     supabase.from("gameweek_results").select("*").eq("season", season),
     supabase.from("applied_fines").select("*").eq("season", season),
   ]);
 
-  const playerMap = new Map((players as Player[] | null ?? []).map((p) => [p.entry_id, p.display_name]));
+  const allPlayers = (players as (Player & { hidden: boolean })[] | null) ?? [];
+  const playerMap = new Map(allPlayers.map((p) => [p.entry_id, p.display_name]));
+  const hiddenIds = new Set(allPlayers.filter((p) => p.hidden).map((p) => p.entry_id));
   const gwResults = (gws ?? []) as GameweekResult[];
   const finesForSeason = (fines ?? []) as FineProposal[];
 
   const byEntry = new Map<number, Row>();
-  const ensure = (entryId: number): Row => {
+  const ensure = (entryId: number): Row | null => {
+    if (hiddenIds.has(entryId)) return null;
     let r = byEntry.get(entryId);
     if (!r) {
       r = {
@@ -79,6 +82,7 @@ export default async function HistoryPage({
 
   for (const g of gwResults) {
     const r = ensure(g.entry_id);
+    if (!r) continue;
     r.totalPoints += g.points;
     r.loserP += g.loser_fine_p;
     r.belowAvgP += g.below_avg_fine_p;
@@ -86,6 +90,7 @@ export default async function HistoryPage({
   }
   for (const f of finesForSeason) {
     const r = ensure(f.target_entry);
+    if (!r) continue;
     r.totalFinesP += f.fine_p;
     if (f.kind === "gloat") r.gloatsP += f.fine_p;
     else r.otherP += f.fine_p;

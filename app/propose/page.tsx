@@ -15,6 +15,7 @@ export default async function ProposePage() {
   const { data: players } = await admin
     .from("players")
     .select("entry_id, display_name")
+    .eq("hidden", false)
     .order("display_name");
 
   const others = (players ?? []).filter((p) => p.entry_id !== session.entry_id);

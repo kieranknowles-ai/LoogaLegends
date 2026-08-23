@@ -11,6 +11,7 @@ export type Player = {
   joined_at: string;
   bio: string | null;
   ai_caught_count: number;
+  hidden: boolean;
 };
 
 export type GameweekResult = {

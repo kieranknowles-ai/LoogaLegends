@@ -233,3 +233,16 @@ export async function clearPassword(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath("/admin");
 }
+
+export async function toggleHidden(formData: FormData) {
+  const { admin } = await requireAdmin();
+  const entryId = Number(formData.get("entry_id"));
+  const hidden = formData.get("hidden") === "true";
+  // Hiding only affects what the app displays — their gameweek results keep syncing in the
+  // background, so un-hiding shows their full history immediately, no re-sync needed.
+  const { error } = await admin.from("players").update({ hidden: !hidden }).eq("entry_id", entryId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin");
+  revalidatePath("/");
+  revalidatePath("/history");
+}

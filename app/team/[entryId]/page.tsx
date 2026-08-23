@@ -60,7 +60,7 @@ export default async function TeamSeasonPage({
       .select("*")
       .eq("season", CURRENT_SEASON)
       .eq("target_entry", entryId),
-    supabase.from("players").select("entry_id, display_name"),
+    supabase.from("players").select("entry_id, display_name").eq("hidden", false),
     supabase
       .from("gameweek_results")
       .select("gw, entry_id, points, loser_fine_p, below_avg_fine_p, points_on_bench")

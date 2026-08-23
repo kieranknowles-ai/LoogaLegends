@@ -9,6 +9,7 @@ import {
   markPoorReport,
   setDisplayName,
   setFirstName,
+  toggleHidden,
   toggleMissedReport,
   unvoidProposal,
   voidProposal,
@@ -319,7 +320,7 @@ export default async function AdminPage({
                     {!p.voided ? (
                       <form action={voidProposal} className="flex gap-1">
                         <input type="hidden" name="id" value={p.id} />
-                        <input name="reason" placeholder="reason" className="border-2 border-ink p-1 text-xs w-24" />
+                        <input name="reason" placeholder="reason" className="border-2 border-ink p-1 text-base w-24" />
                         <button className="btn-primary text-xs">Void</button>
                       </form>
                     ) : (
@@ -354,11 +355,12 @@ export default async function AdminPage({
                 <th className="px-2 py-2 text-left">Admin?</th>
                 <th className="px-2 py-2 text-left">Password set?</th>
                 <th className="px-2 py-2"></th>
+                <th className="px-2 py-2 text-left">Visible?</th>
               </tr>
             </thead>
             <tbody>
               {allPlayers.map((p) => (
-                <tr key={p.entry_id} className="border-t border-ink/20">
+                <tr key={p.entry_id} className={`border-t border-ink/20 ${p.hidden ? "opacity-40" : ""}`}>
                   <td className="px-2 py-2 tabular-nums">{p.entry_id}</td>
                   <td className="px-2 py-2">
                     <form action={setDisplayName} className="flex gap-1">
@@ -383,6 +385,15 @@ export default async function AdminPage({
                         <button className="btn-primary text-xs">Reset password</button>
                       </form>
                     )}
+                  </td>
+                  <td className="px-2 py-2">
+                    <form action={toggleHidden}>
+                      <input type="hidden" name="entry_id" value={p.entry_id} />
+                      <input type="hidden" name="hidden" value={String(p.hidden)} />
+                      <button className={`text-xs px-2 py-1 border-2 border-ink font-bold uppercase ${p.hidden ? "bg-paper" : "bg-bargain"}`}>
+                        {p.hidden ? "Hidden — unhide" : "Visible — hide"}
+                      </button>
+                    </form>
                   </td>
                 </tr>
               ))}

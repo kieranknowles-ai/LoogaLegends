@@ -170,7 +170,7 @@ export default async function Page({
   const session = await getSession();
 
   const [{ data: players }, { data: gws }, { data: applied }, { data: allGloats }, { data: pending }, { data: emojiLog }] = await Promise.all([
-    supabase.from("players").select("entry_id, display_name, ai_caught_count").order("display_name"),
+    supabase.from("players").select("entry_id, display_name, ai_caught_count").eq("hidden", false).order("display_name"),
     supabase.from("gameweek_results").select("*").eq("season", CURRENT_SEASON),
     supabase.from("applied_fines").select("*").eq("season", CURRENT_SEASON),
     supabase
