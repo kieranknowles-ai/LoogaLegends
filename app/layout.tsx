@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Anton, Inter } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
@@ -17,8 +17,23 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "LOOGA LEGENDS — League 375288",
+  title: `LOOGA LEGENDS — League ${process.env.LEAGUE_ID ?? "?"}`,
   description: "Weekly fines, gloats and missed reports. Pay up.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Looga Legends",
+  },
+  icons: {
+    icon: "/favicon-32.png",
+    apple: "/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0a",
+  viewportFit: "cover", // lets safe-area-inset-* vars work under the iPhone notch/home indicator
 };
 
 export default async function RootLayout({
@@ -28,7 +43,7 @@ export default async function RootLayout({
   return (
     <html lang="en" className={`${anton.variable} ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-paper text-ink">
-        <header className="border-b-4 border-ink bg-paper">
+        <header className="border-b-4 border-ink bg-paper pt-[env(safe-area-inset-top)]">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-baseline justify-between gap-4 flex-wrap">
             <Link href="/" className="font-display text-3xl md:text-4xl tracking-tight uppercase leading-none">
               LOOGA <span className="text-tabloid">LEGENDS</span>
@@ -54,13 +69,16 @@ export default async function RootLayout({
           <div className="bg-tabloid text-paper text-xs uppercase font-bold tracking-widest py-1">
             <div className="max-w-5xl mx-auto px-4 flex justify-between gap-4">
               <span>★ EXCLUSIVE ★ THIS WEEK&apos;S BIGGEST FLOPS — NAMED &amp; SHAMED ★</span>
-              <span className="hidden sm:inline">LEAGUE 375288</span>
+              <span className="hidden sm:inline">LEAGUE {process.env.LEAGUE_ID ?? "NOT SET"}</span>
             </div>
           </div>
         </header>
         <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">{children}</main>
-        <footer className="border-t-4 border-ink mt-8 py-4 text-xs uppercase tracking-widest text-center">
-          The People&apos;s Pot · No Refunds · Pay Up
+        <footer className="border-t-4 border-ink mt-8 py-4 text-xs uppercase tracking-widest text-center pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div>The People&apos;s Pot · No Refunds · Pay Up</div>
+          <Link href="/add-to-home-screen" className="inline-block mt-2 normal-case tracking-normal underline decoration-tabloid decoration-2 underline-offset-2 hover:text-tabloid">
+            📱 Add this to your home screen
+          </Link>
         </footer>
       </body>
     </html>
